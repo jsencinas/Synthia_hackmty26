@@ -1,169 +1,408 @@
 import json
 import os
-import csv
-
-human_data = []
-synthetic_data = []
-
-# Read manifest.csv
-labels = {}
-
-with open("manifest.csv", "r") as file:
-    reader = csv.DictReader(file)
-
-    for row in reader:
-        labels[row["anon_id"]] = row["label"]
+import pandas as pd
+import statistics
 
 
-# Go through every JSON file
-for filename in os.listdir("turns"):
+# ============================================
+# CONFIGURACIÓN
+# ============================================
 
-    if filename.endswith(".json"):
-
-        # Get the anon_id from the filename
-        anon_id = filename.replace(".json", "")
-
-        # Open JSON
-        with open("turns/" + filename, "r") as file:
-            data = json.load(file)
-
-        caller_turns = []
-        agent_turns = []
-
-        # Separate caller and agent
-        for turn in data["turns"]:
-
-            if turn["channel"] == 0:
-                caller_turns.append(turn)
-            else:
-                agent_turns.append(turn)
+CARPETA_TURNS = "turns"
+MANIFEST = "manifest.csv"
 
 
-        # Number of caller turns
-        num_caller_turns = len(caller_turns)
+# ============================================
+# ANALIZAR UNA LLAMADA
+# ============================================
+
+def analizar_llamada(ruta_json):
+
+    # Leer JSON
+    with open(ruta_json, "r", encoding="utf-8") as archivo:
+        data = json.load(archivo)
+
+    turns = data["turns"]
 
 
-        # Total caller speech
-        total_speech = 0
+    # ========================================
+    # SEPARAR CALLER Y AGENTE
+    # ========================================
 
-        for turn in caller_turns:
-            duration = turn["end"] - turn["start"]
-            total_speech += duration
+    channel_0 = []
+    channel_1 = []
 
+    for turn in turns:
 
-        # Average caller turn
-        average_turn = total_speech / num_caller_turns
-
-
-        # Calculate latencies
-        latencies = []
-
-        for caller in caller_turns:
-
-            previous_agent_end = None
-
-            for agent in agent_turns:
-
-                if agent["end"] <= caller["start"]:
-
-                    if previous_agent_end is None or agent["end"] > previous_agent_end:
-                        previous_agent_end = agent["end"]
-
-            if previous_agent_end is not None:
-                latency = caller["start"] - previous_agent_end
-                latencies.append(latency)
-
-
-        # Latency statistics
-        minimum_latency = min(latencies)
-        average_latency = sum(latencies) / len(latencies)
-        maximum_latency = max(latencies)
-
-
-        # Create feature vector
-        features = [
-            num_caller_turns,
-            total_speech,
-            average_turn,
-            minimum_latency,
-            average_latency,
-            maximum_latency
-        ]
-
-
-        # Get the correct label from manifest
-        label = labels[anon_id]
-
-
-        # Put the data into the correct group
-        if label == "human":
-            human_data.append(features)
+        if turn["channel"] == 0:
+            channel_0.append(turn)
 
         else:
-            synthetic_data.append(features)
+            channel_1.append(turn)
 
 
-# Show results
-print("Number of human calls:", len(human_data))
-print("Number of synthetic calls:", len(synthetic_data))
-
-print("\nFirst human example:")
-print(human_data[0])
-
-print("\nFirst synthetic example:")
-print(synthetic_data[0])
-
-# Calculate averages for human calls
-
-human_avg = []
-
-for i in range(6):
-    total = 0
-
-    for data in human_data:
-        total += data[i]
-
-    average = total / len(human_data)
-    human_avg.append(average)
+    # Ordenar cronológicamente
+    channel_0.sort(key=lambda x: x["start"])
+    channel_1.sort(key=lambda x: x["start"])
 
 
-# Calculate averages for synthetic calls
+    # ========================================
+    # 1. NÚMERO DE TURNOS DEL CALLER
+    # ========================================
 
-synthetic_avg = []
-
-for i in range(6):
-    total = 0
-
-    for data in synthetic_data:
-        total += data[i]
-
-    average = total / len(synthetic_data)
-    synthetic_avg.append(average)
+    numero_turnos_caller = len(channel_0)
 
 
-# Feature names
+    # ========================================
+    # 2. DURACIÓN PROMEDIO DE LOS TURNOS
+    # ========================================
 
-feature_names = [
-    "Caller turns",
-    "Total speech",
-    "Average turn",
-    "Minimum latency",
-    "Average latency",
-    "Maximum latency"
-]
+    duraciones = []
 
+    for turn in channel_0:
 
-# Print final results
+        duracion = turn["end"] - turn["start"]
 
-print("\n========== FINAL RESULTS ==========")
-
-print("\nHUMAN AVERAGES:")
-
-for i in range(6):
-    print(feature_names[i], ":", round(human_avg[i], 3))
+        duraciones.append(duracion)
 
 
-print("\nSYNTHETIC AVERAGES:")
+    if len(duraciones) > 0:
 
-for i in range(6):
-    print(feature_names[i], ":", round(synthetic_avg[i], 3))
+        duracion_promedio_caller = (
+            sum(duraciones) / len(duraciones)
+        )
+
+    else:
+
+        duracion_promedio_caller = 0
+
+
+    # ========================================
+    # 3. PAUSA PROMEDIO ENTRE TURNOS DEL CALLER
+    # ========================================
+
+    pausas = []
+
+    for i in range(len(channel_0) - 1):
+
+        fin_actual = channel_0[i]["end"]
+
+        inicio_siguiente = channel_0[i + 1]["start"]
+
+        pausa = inicio_siguiente - fin_actual
+
+        pausas.append(pausa)
+
+
+    if len(pausas) > 0:
+
+        pausa_promedio_caller = (
+            sum(pausas) / len(pausas)
+        )
+
+    else:
+
+        pausa_promedio_caller = 0
+
+
+    # ========================================
+    # 4. LATENCIAS DEL CALLER
+    # ========================================
+
+    latencias = []
+
+    for caller in channel_0:
+
+        anterior_agente = None
+
+        # Buscar el último turno del agente
+        # que terminó antes de que el caller empezara
+
+        for agent in channel_1:
+
+            if agent["end"] <= caller["start"]:
+
+                if anterior_agente is None:
+
+                    anterior_agente = agent["end"]
+
+                elif agent["end"] > anterior_agente:
+
+                    anterior_agente = agent["end"]
+
+
+        if anterior_agente is not None:
+
+            latencia = (
+                caller["start"] - anterior_agente
+            )
+
+            latencias.append(latencia)
+
+
+    # ========================================
+    # 5. DESVIACIÓN ESTÁNDAR DE LA LATENCIA
+    # ========================================
+
+    if len(latencias) > 1:
+
+        desviacion_estandar_latencia = statistics.stdev(
+            latencias
+        )
+
+    else:
+
+        desviacion_estandar_latencia = 0
+
+
+    # ========================================
+    # 6. INTERRUPCIONES DEL AGENTE
+    # ========================================
+
+    interrupciones_agente = 0
+
+    duraciones_interrupciones = []
+
+
+    for caller in channel_0:
+
+        for agent in channel_1:
+
+            inicio_overlap = max(
+                caller["start"],
+                agent["start"]
+            )
+
+            final_overlap = min(
+                caller["end"],
+                agent["end"]
+            )
+
+
+            # Si hay overlap significa que
+            # el agente habló mientras
+            # el caller todavía estaba hablando
+
+            if inicio_overlap < final_overlap:
+
+                duracion_overlap = (
+                    final_overlap - inicio_overlap
+                )
+
+                interrupciones_agente += 1
+
+                duraciones_interrupciones.append(
+                    duracion_overlap
+                )
+
+
+    # ========================================
+    # 7. DURACIÓN TOTAL DE INTERRUPCIONES
+    # ========================================
+
+    if len(duraciones_interrupciones) > 0:
+
+        duracion_total_interrupciones = sum(
+            duraciones_interrupciones
+        )
+
+    else:
+
+        duracion_total_interrupciones = 0
+
+
+    # ========================================
+    # 8. DURACIÓN PROMEDIO DE INTERRUPCIONES
+    # ========================================
+
+    if len(duraciones_interrupciones) > 0:
+
+        duracion_promedio_interrupcion = (
+            duracion_total_interrupciones
+            / len(duraciones_interrupciones)
+        )
+
+    else:
+
+        duracion_promedio_interrupcion = 0
+
+
+    # ========================================
+    # ID DEL ARCHIVO
+    # ========================================
+
+    nombre_archivo = os.path.basename(ruta_json)
+
+    anon_id = os.path.splitext(nombre_archivo)[0]
+
+
+    # ========================================
+    # RESULTADO
+    # ========================================
+
+    return {
+
+        "anon_id":
+            anon_id,
+
+        "numero_turnos_caller":
+            numero_turnos_caller,
+
+        "duracion_promedio_caller":
+            duracion_promedio_caller,
+
+        "pausa_promedio_caller":
+            pausa_promedio_caller,
+
+        "desviacion_estandar_latencia":
+            desviacion_estandar_latencia,
+
+        "interrupciones_agente":
+            interrupciones_agente,
+
+        "duracion_total_interrupciones":
+            duracion_total_interrupciones,
+
+        "duracion_promedio_interrupcion":
+            duracion_promedio_interrupcion
+    }
+
+
+# ============================================
+# LEER MANIFEST
+# ============================================
+
+manifest = pd.read_csv(MANIFEST)
+
+print("Manifest cargado.")
+print("Número de llamadas:", len(manifest))
+
+
+# ============================================
+# ANALIZAR TODOS LOS JSON
+# ============================================
+
+resultados = []
+
+archivos = os.listdir(CARPETA_TURNS)
+
+
+for archivo in archivos:
+
+    # Solo analizar archivos JSON
+    if not archivo.endswith(".json"):
+        continue
+
+
+    ruta_json = os.path.join(
+        CARPETA_TURNS,
+        archivo
+    )
+
+
+    try:
+
+        resultado = analizar_llamada(ruta_json)
+
+        resultados.append(resultado)
+
+        print("Analizado:", archivo)
+
+
+    except Exception as e:
+
+        print(
+            "ERROR en",
+            archivo,
+            ":",
+            e
+        )
+
+
+# ============================================
+# CREAR DATAFRAME
+# ============================================
+
+df_resultados = pd.DataFrame(resultados)
+
+
+# ============================================
+# AGREGAR LABEL Y SPLIT
+# ============================================
+
+df_resultados = df_resultados.merge(
+    manifest[
+        [
+            "anon_id",
+            "label",
+            "split"
+        ]
+    ],
+    on="anon_id",
+    how="left"
+)
+
+
+# ============================================
+# MOSTRAR TABLA
+# ============================================
+
+print("\n")
+print("=" * 110)
+print("RESULTADOS DE TODAS LAS LLAMADAS")
+print("=" * 110)
+
+print(
+    df_resultados.to_string(index=False)
+)
+
+
+# ============================================
+# PROMEDIOS HUMAN VS SYNTHETIC
+# ============================================
+
+comparacion = df_resultados.groupby("label")[
+    [
+        "numero_turnos_caller",
+        "duracion_promedio_caller",
+        "pausa_promedio_caller",
+        "desviacion_estandar_latencia",
+        "interrupciones_agente",
+        "duracion_total_interrupciones",
+        "duracion_promedio_interrupcion"
+    ]
+].mean()
+
+
+# ============================================
+# MOSTRAR PROMEDIOS
+# ============================================
+
+print("\n")
+print("=" * 110)
+print("PROMEDIOS: HUMAN VS SYNTHETIC")
+print("=" * 110)
+
+print(
+    comparacion.to_string()
+)
+
+
+# ============================================
+# GUARDAR CSV
+# ============================================
+
+df_resultados.to_csv(
+    "resultados_turns.csv",
+    index=False
+)
+
+
+print("\n")
+print("=" * 110)
+print("ARCHIVO GUARDADO")
+print("=" * 110)
+
+print(
+    "Se creó: resultados_turns.csv"
+)
