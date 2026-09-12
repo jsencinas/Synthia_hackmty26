@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import hashlib
 from pathlib import Path
 
 from src.config import (
@@ -21,8 +22,11 @@ class STTError(Exception):
 
 
 def _cache_path(audio_path: str) -> Path:
-    stem = os.path.splitext(os.path.basename(audio_path))[0] or "call"
-    return Path(TRANSCRIPT_CACHE_DIR) / f"{stem}.json"
+    digest = hashlib.sha256()
+    with open(audio_path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return Path(TRANSCRIPT_CACHE_DIR) / f"{digest.hexdigest()}.json"
 
 
 def _load_cache(audio_path: str) -> dict | None:

@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
-import tempfile
-
 import numpy as np
 import soundfile as sf
 
@@ -82,15 +78,3 @@ def extract_turns(audio_path: str) -> dict:
 
     turns.sort(key=lambda t: (t["start"], t["channel"]))
     return {"turns": turns}
-
-
-def write_temp_json(audio_path: str) -> str:
-    payload = extract_turns(audio_path)
-    if not payload["turns"]:
-        raise ValueError("empty_vad_turns")
-
-    stem = os.path.splitext(os.path.basename(audio_path))[0] or "call"
-    fd, path = tempfile.mkstemp(prefix=f"{stem}_", suffix=".json")
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle)
-    return path

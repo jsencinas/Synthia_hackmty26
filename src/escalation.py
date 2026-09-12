@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from src.config import ESCALATION_THRESHOLD_PCT
-from src.json_stage import run as run_json
+from src.fusion import fuse, heads_disagree
+from src.json_stage import run as run_timing
 from src.transcript_stage import run as run_stt
-from src.turns_from_wav import write_temp_json
+from src.turns_from_wav import extract_turns
 from src.types import StageResult
 from src.voice_stage import run as run_voice
-
-
-def is_certain(result: StageResult, threshold_pct: float = ESCALATION_THRESHOLD_PCT) -> bool:
-    return result.error is None and result.certainty_pct >= threshold_pct
 
 
 def finalize(result: StageResult | None, stages: list[StageResult] | None = None) -> dict:
@@ -22,8 +18,8 @@ def finalize(result: StageResult | None, stages: list[StageResult] | None = None
             "stages": [],
         }
     return {
-        "is_synthetic": bool(result.p_synthetic >= 0.5),
-        "confidence": float(result.p_synthetic),
+        "is_synthetic": result.is_synthetic,
+        "confidence": max(result.p_synthetic, 1.0 - result.p_synthetic),
         "stopped_at": result.stage,
         "certainty_pct": result.certainty_pct,
         "error": result.error,
@@ -39,47 +35,39 @@ def finalize(result: StageResult | None, stages: list[StageResult] | None = None
     }
 
 
-def detect_call(audio_path: str, turns_path: str | None = None) -> dict:
-    generated_turns = False
-    if turns_path is None:
-        try:
-            turns_path = write_temp_json(audio_path)
-            generated_turns = True
-        except Exception:
-            turns_path = None
+def detect_call(audio_path: str) -> dict:
+    try:
+        turns_payload = extract_turns(audio_path)
+        if not turns_payload["turns"]:
+            turns_payload = None
+    except Exception:
+        turns_payload = None
 
     stages: list[StageResult] = []
     last_good: StageResult | None = None
 
-    json_result = run_json(turns_path)
-    stages.append(json_result)
-    if json_result.error is None:
-        last_good = json_result
-        if is_certain(json_result):
-            return finalize(json_result, stages)
+    timing_result = run_timing(turns_payload)
+    stages.append(timing_result)
+    if timing_result.error is None:
+        last_good = timing_result
 
-    if audio_path and turns_path:
-        voice_result = run_voice(audio_path, turns_path)
-        stages.append(voice_result)
-        if voice_result.error is None:
-            last_good = voice_result
-            if is_certain(voice_result):
-                return finalize(voice_result, stages)
-    else:
-        voice_result = StageResult(
-            stage="voice",
-            is_synthetic=False,
-            p_synthetic=0.5,
-            certainty_pct=0.0,
-            features={},
-            error="voice_turns_missing" if not turns_path else "voice_audio_missing",
-        )
-        stages.append(voice_result)
+    voice_result = run_voice(audio_path, turns_payload)
+    stages.append(voice_result)
+    if voice_result.error is None:
+        last_good = voice_result
 
-    stt_result = run_stt(audio_path, turns_path)
+    fused_result: StageResult | None = None
+    if timing_result.error is None and voice_result.error is None:
+        fused_result = fuse(timing_result, voice_result)
+        stages.append(fused_result)
+        last_good = fused_result
+        if not heads_disagree(timing_result, voice_result):
+            return finalize(fused_result, stages)
+
+    stt_result = run_stt(audio_path, turns_payload)
     stages.append(stt_result)
     if stt_result.error is None:
-        last_good = stt_result
-
-    _ = generated_turns
+        return finalize(stt_result, stages)
+    if fused_result is not None:
+        return finalize(fused_result, stages)
     return finalize(last_good, stages)

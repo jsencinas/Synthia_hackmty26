@@ -6,13 +6,6 @@ from src.transcript_stage import run as run_transcript
 from src.types import StageResult
 
 
-def _json_voice_uncertain():
-    return (
-        lambda path: StageResult("json", True, 0.60, 60.0),
-        lambda *args, **kwargs: StageResult("voice", True, 0.55, 55.0),
-    )
-
-
 def test_transcribe_missing_key(monkeypatch):
     monkeypatch.setattr("src.stt_elevenlabs.ELEVENLABS_API_KEY", "")
     with pytest.raises(STTError) as exc:
@@ -61,14 +54,27 @@ def test_empty_text_returns_error(monkeypatch):
     assert result.error == "stt_failed"
 
 
-def test_orchestrator_keeps_voice_when_stt_fails(monkeypatch):
-    json_fn, voice_fn = _json_voice_uncertain()
-    monkeypatch.setattr("src.escalation.run_json", json_fn)
-    monkeypatch.setattr("src.escalation.run_voice", voice_fn)
+def test_orchestrator_keeps_fusion_when_stt_fails(monkeypatch):
+    monkeypatch.setattr(
+        "src.escalation.extract_turns",
+        lambda path: {"turns": [{"channel": 0, "start": 0.0, "end": 1.0}]},
+    )
+    monkeypatch.setattr(
+        "src.escalation.run_timing",
+        lambda payload: StageResult("timing", True, 0.80, 80.0),
+    )
+    monkeypatch.setattr(
+        "src.escalation.run_voice",
+        lambda *args, **kwargs: StageResult("voice", False, 0.20, 80.0),
+    )
+    monkeypatch.setattr(
+        "src.escalation.fuse",
+        lambda json_result, voice_result: StageResult("fusion", True, 0.62, 62.0),
+    )
     monkeypatch.setattr(
         "src.escalation.run_stt",
         lambda *args, **kwargs: StageResult("stt", False, 0.5, 0.0, error="stt_failed"),
     )
-    payload = detect_call("audio.wav", turns_path="turns.json")
-    assert payload["stopped_at"] == "voice"
-    assert payload["confidence"] == 0.55
+    payload = detect_call("audio.wav")
+    assert payload["stopped_at"] == "fusion"
+    assert payload["confidence"] == 0.62

@@ -2,13 +2,11 @@ pandas
 numpy
 scikit-learn
 xgboost
-lightgbm
 joblib
 librosa
 soundfile
 fastapi
 uvicorn
+pydantic
 python-dotenv
 elevenlabs
-pytest
-httpx

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "trained_at": "2026-09-12T20:21:24.855460+00:00",
+  "trained_on": "train_only",
+  "training_rows": 282,
+  "source_fingerprint": "0079b398b5438afd38166555d2c30814efd458f22250271f577810437e7d847b",
+  "random_state": 42,
+  "folds": 5,
+  "turn_source": "energy_vad_from_wav",
+  "timing_features": [
+    "numero_turnos_caller",
+    "duracion_promedio_caller",
+    "pausa_promedio_caller",
+    "desviacion_estandar_latencia",
+    "interrupciones_agente",
+    "duracion_total_interrupciones",
+    "duracion_promedio_interrupcion",
+    "tasa_interrupciones",
+    "duracion_interrupciones_por_turno",
+    "ratio_habla_pausa"
+  ],
+  "voice_features": [
+    "mfcc_1_std",
+    "shimmer",
+    "pitch_delta_std",
+    "jitter"
+  ],
+  "class_mapping": {
+    "0": "human",
+    "1": "synthetic"
+  }
+}

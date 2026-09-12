@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
 import re
 from typing import Any
 
@@ -13,14 +11,6 @@ REPEAT_BACK = ("repita", "confirme", "digame de nuevo", "dígame de nuevo")
 HESITATION = ("mande", "no tengo", "como", "cómo")
 FILLERS = ("bueno", "este", "o sea")
 DIGIT_RE = re.compile(r"\d")
-
-
-def _load_turns(turns_path: str | None) -> list[dict]:
-    if not turns_path or not os.path.exists(turns_path):
-        return []
-    with open(turns_path, "r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    return data.get("turns", [])
 
 
 def _word_text(word: Any) -> str:
@@ -109,10 +99,10 @@ def score_transcript(payload: dict, turns: list[dict]) -> tuple[float, dict]:
     return p_synthetic, features
 
 
-def run(audio_path: str, turns_path: str | None) -> StageResult:
+def run(audio_path: str, turns_payload: dict | None) -> StageResult:
     try:
         payload = transcribe(audio_path)
-        turns = _load_turns(turns_path)
+        turns = (turns_payload or {}).get("turns", [])
         p_synthetic, features = score_transcript(payload, turns)
         if not payload.get("text") and not payload.get("words"):
             return StageResult(
