@@ -34,34 +34,21 @@ def analizar_llamada(ruta_json):
         if turn["channel"] == 1
     ]
 
-    # Ordenar cronológicamente
+    # Ordenar cronológicamente el caller para el cálculo de pausas
     channel_0.sort(key=lambda x: x["start"])
-    channel_1.sort(key=lambda x: x["start"])
-
 
     # ========================================
     # DURACIÓN TOTAL DE LA LLAMADA
     # ========================================
 
-    inicio = min(turn["start"] for turn in turns)
-    final = max(turn["end"] for turn in turns)
-
-    duracion_llamada = final - inicio
-
+    duracion_llamada = max(t["end"] for t in turns) - min(t["start"] for t in turns)
 
     # ========================================
     # CHANNEL 0
     # DURACIÓN DE CADA INTERVENCIÓN
     # ========================================
 
-    duraciones_caller = []
-
-    for turn in channel_0:
-
-        duracion = turn["end"] - turn["start"]
-
-        duraciones_caller.append(duracion)
-
+    duraciones_caller = [turn["end"] - turn["start"] for turn in channel_0]
 
     # Promedio
     if duraciones_caller:
@@ -72,35 +59,22 @@ def analizar_llamada(ruta_json):
     else:
         promedio_duracion_caller = 0
 
-
     # ========================================
     # PAUSAS ENTRE INTERVENCIONES DEL CALLER
     # ========================================
 
-    pausas = []
-
-    for i in range(len(channel_0) - 1):
-
-        fin_actual = channel_0[i]["end"]
-
-        inicio_siguiente = channel_0[i + 1]["start"]
-
-        pausa = inicio_siguiente - fin_actual
-
-        pausas.append(pausa)
-
+    pausas = [
+        channel_0[i + 1]["start"] - channel_0[i]["end"]
+        for i in range(len(channel_0) - 1)
+    ]
 
     if pausas:
-
         promedio_pausa = (
             sum(pausas)
             / len(pausas)
         )
-
     else:
-
         promedio_pausa = 0
-
 
     # ========================================
     # INTERRUPCIONES / OVERLAPS
@@ -109,14 +83,11 @@ def analizar_llamada(ruta_json):
     interrupciones = []
 
     for caller in channel_0:
-
         for agent in channel_1:
-
             inicio_overlap = max(
                 caller["start"],
                 agent["start"]
             )
-
             final_overlap = min(
                 caller["end"],
                 agent["end"]
@@ -124,64 +95,33 @@ def analizar_llamada(ruta_json):
 
             # Si se están superponiendo
             if inicio_overlap < final_overlap:
-
-                duracion_overlap = (
-                    final_overlap
-                    - inicio_overlap
-                )
-
                 interrupciones.append(
-                    duracion_overlap
+                    final_overlap - inicio_overlap
                 )
-
 
     # Promedio de interrupción
-
     if interrupciones:
-
         promedio_interrupcion = (
             sum(interrupciones)
             / len(interrupciones)
         )
-
     else:
-
         promedio_interrupcion = 0
-
 
     # ========================================
     # RESULTADO
     # ========================================
 
-    nombre_archivo = os.path.basename(ruta_json)
-
-    anon_id = os.path.splitext(nombre_archivo)[0]
-
+    anon_id = os.path.splitext(os.path.basename(ruta_json))[0]
 
     return {
-
         "anon_id": anon_id,
-
-        "duracion_llamada":
-            duracion_llamada,
-
-        "intervenciones_caller":
-            len(channel_0),
-
-        "duracion_promedio_caller":
-            promedio_duracion_caller,
-
-        "pausas_caller":
-            len(pausas),
-
-        "pausa_promedio":
-            promedio_pausa,
-
-        "interrupciones":
-            len(interrupciones),
-
-        "interrupcion_promedio":
-            promedio_interrupcion
+        "duracion_llamada": duracion_llamada,
+        "intervenciones_caller": len(channel_0),
+        "duracion_promedio_caller": promedio_duracion_caller,
+        "pausa_promedio": promedio_pausa,
+        "interrupciones": len(interrupciones),
+        "interrupcion_promedio": promedio_interrupcion,
     }
 
 
@@ -243,7 +183,7 @@ df_resultados = pd.DataFrame(resultados)
 # ============================================
 
 df_resultados = df_resultados.merge(
-    manifest[["anon_id", "label", "split"]],
+    manifest[["anon_id", "label"]],
     on="anon_id",
     how="left"
 )
