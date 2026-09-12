@@ -5,8 +5,11 @@ audio/
 venv/
 __pycache__/
 *.joblib
+!modelo_detector.joblib
 *.csv
 outputs/
 data/
 models/
+.env
 .DS_Store
+.pytest_cache/

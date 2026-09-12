@@ -175,155 +175,152 @@ def analizar_llamada(ruta_audio, ruta_json):
     }
 
 
-# ================================================================
-# CARGAR MANIFEST
-# ================================================================
+def main():
+    # ================================================================
+    # CARGAR MANIFEST
+    # ================================================================
 
-manifest = pd.read_csv(MANIFEST)
+    manifest = pd.read_csv(MANIFEST)
 
-print("Manifest cargado.")
-print("Número de llamadas:", len(manifest))
+    print("Manifest cargado.")
+    print("Número de llamadas:", len(manifest))
 
+    # ================================================================
+    # ANALIZAR TODAS LAS LLAMADAS
+    # ================================================================
 
-# ================================================================
-# ANALIZAR TODAS LAS LLAMADAS
-# ================================================================
+    resultados = []
 
-resultados = []
+    archivos = os.listdir(CARPETA_AUDIO)
 
-archivos = os.listdir(CARPETA_AUDIO)
+    for archivo in archivos:
 
-for archivo in archivos:
+        if not archivo.endswith(".wav"):
+            continue
 
-    if not archivo.endswith(".wav"):
-        continue
-
-    ruta_audio = os.path.join(
-        CARPETA_AUDIO,
-        archivo
-    )
-
-    anon_id = os.path.splitext(archivo)[0]
-
-    ruta_json = os.path.join(
-        CARPETA_TURNS,
-        anon_id + ".json"
-    )
-
-    if not os.path.exists(ruta_json):
-
-        print(
-            "No existe JSON para:",
+        ruta_audio = os.path.join(
+            CARPETA_AUDIO,
             archivo
         )
 
-        continue
+        anon_id = os.path.splitext(archivo)[0]
 
-    try:
-
-        resultado = analizar_llamada(
-            ruta_audio,
-            ruta_json
+        ruta_json = os.path.join(
+            CARPETA_TURNS,
+            anon_id + ".json"
         )
 
-        if resultado is not None:
-
-            resultados.append(resultado)
+        if not os.path.exists(ruta_json):
 
             print(
-                "Analizado:",
+                "No existe JSON para:",
                 archivo
             )
 
-    except Exception as e:
+            continue
 
-        print(
-            "ERROR en",
-            archivo,
-            ":",
-            e
-        )
+        try:
+
+            resultado = analizar_llamada(
+                ruta_audio,
+                ruta_json
+            )
+
+            if resultado is not None:
+
+                resultados.append(resultado)
+
+                print(
+                    "Analizado:",
+                    archivo
+                )
+
+        except Exception as e:
+
+            print(
+                "ERROR en",
+                archivo,
+                ":",
+                e
+            )
+
+    # ================================================================
+    # CREAR DATAFRAME
+    # ================================================================
+
+    df_resultados = pd.DataFrame(resultados)
+
+    # ================================================================
+    # AGREGAR LABEL Y SPLIT
+    # ================================================================
+
+    df_resultados = df_resultados.merge(
+        manifest[
+            [
+                "anon_id",
+                "label",
+                "split"
+            ]
+        ],
+        on="anon_id",
+        how="left"
+    )
+
+    # ================================================================
+    # MOSTRAR RESULTADOS
+    # ================================================================
+
+    print("\n")
+    print("=" * 100)
+    print("CARACTERÍSTICAS SELECCIONADAS")
+    print("=" * 100)
+
+    print(
+        df_resultados.to_string(index=False)
+    )
+
+    # ================================================================
+    # PROMEDIOS HUMAN VS SYNTHETIC
+    # ================================================================
+
+    columnas_audio = [
+        "mfcc_1_std",
+        "shimmer",
+        "pitch_delta_std",
+        "jitter"
+    ]
+
+    comparacion = df_resultados.groupby(
+        "label"
+    )[columnas_audio].mean()
+
+    print("\n")
+    print("=" * 100)
+    print("PROMEDIO DE LAS CARACTERÍSTICAS")
+    print("=" * 100)
+
+    print(
+        comparacion.to_string()
+    )
+
+    # ================================================================
+    # GUARDAR CSV
+    # ================================================================
+
+    df_resultados.to_csv(
+        "caracteristicas_finales.csv",
+        index=False
+    )
+
+    print("\n")
+    print("=" * 100)
+    print("ARCHIVO GUARDADO")
+    print("=" * 100)
+
+    print(
+        "Se creó: caracteristicas_finales.csv"
+    )
 
 
-# ================================================================
-# CREAR DATAFRAME
-# ================================================================
-
-df_resultados = pd.DataFrame(resultados)
-
-
-# ================================================================
-# AGREGAR LABEL Y SPLIT
-# ================================================================
-
-df_resultados = df_resultados.merge(
-    manifest[
-        [
-            "anon_id",
-            "label",
-            "split"
-        ]
-    ],
-    on="anon_id",
-    how="left"
-)
-
-
-# ================================================================
-# MOSTRAR RESULTADOS
-# ================================================================
-
-print("\n")
-print("=" * 100)
-print("CARACTERÍSTICAS SELECCIONADAS")
-print("=" * 100)
-
-print(
-    df_resultados.to_string(index=False)
-)
-
-
-# ================================================================
-# PROMEDIOS HUMAN VS SYNTHETIC
-# ================================================================
-
-columnas_audio = [
-    "mfcc_1_std",
-    "shimmer",
-    "pitch_delta_std",
-    "jitter"
-]
-
-comparacion = df_resultados.groupby(
-    "label"
-)[columnas_audio].mean()
-
-
-print("\n")
-print("=" * 100)
-print("PROMEDIO DE LAS CARACTERÍSTICAS")
-print("=" * 100)
-
-print(
-    comparacion.to_string()
-)
-
-
-# ================================================================
-# GUARDAR CSV
-# ================================================================
-
-df_resultados.to_csv(
-    "caracteristicas_finales.csv",
-    index=False
-)
-
-
-print("\n")
-print("=" * 100)
-print("ARCHIVO GUARDADO")
-print("=" * 100)
-
-print(
-    "Se creó: caracteristicas_finales.csv"
-)
+if __name__ == "__main__":
+    main()

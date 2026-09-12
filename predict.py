@@ -120,6 +120,9 @@ def predecir_muestra(metricas: dict, modelo=None, metadata=None, usar_umbral_opt
     Realiza la predicción para un diccionario de métricas.
     Retorna un diccionario con formato compatible con el challenge:
     {"is_synthetic": bool, "confidence": float, "label": str, ...}
+
+    Stage 1 of the escalation cascade calls this with usar_umbral_optimo=False
+    so the 0.66 val-tuned threshold is not used as the 75% certainty gate.
     """
     if modelo is None or metadata is None:
         modelo, metadata = cargar_modelo_y_metadata()
