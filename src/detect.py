@@ -55,13 +55,18 @@ def heads_disagree(timing_result: StageResult, voice_result: StageResult) -> boo
 
 
 def fuse(timing_result: StageResult, voice_result: StageResult, stacker=None) -> StageResult:
-    if stacker is None:
-        stacker = load_stacker()
-    p = float(
-        stacker.predict_proba(
-            [stack_features(timing_result.p_synthetic, voice_result.p_synthetic)]
-        )[0, 1]
-    )
+    try:
+        if stacker is None:
+            stacker = load_stacker()
+        p = float(
+            stacker.predict_proba(
+                [stack_features(timing_result.p_synthetic, voice_result.p_synthetic)]
+            )[0, 1]
+        )
+    except FileNotFoundError:
+        return StageResult.failed("fusion", "stacker_missing")
+    except Exception as exc:
+        return StageResult.failed("fusion", f"fusion_failed:{exc}")
 
     return StageResult(
         stage="fusion",
@@ -132,9 +137,12 @@ def detect_call(audio_path: str) -> dict:
     if timing_result.error is None and voice_result.error is None:
         fused_result = fuse(timing_result, voice_result)
         stages.append(fused_result)
-        last_good = fused_result
-        if not heads_disagree(timing_result, voice_result):
-            return finalize(fused_result, stages)
+        if fused_result.error is None:
+            last_good = fused_result
+            if not heads_disagree(timing_result, voice_result):
+                return finalize(fused_result, stages)
+        else:
+            fused_result = None
 
     stt_result = run_stt(audio_path, turns_payload)
     stages.append(stt_result)

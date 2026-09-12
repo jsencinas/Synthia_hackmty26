@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.detect import detect_call
+from src.models import require_artifacts
 
 
 app = FastAPI(title="HackMTY caller detector")
@@ -55,6 +56,10 @@ def detect(request: DetectRequest) -> dict:
                 status_code=400,
                 detail="Expected a non-empty stereo 8 kHz WAV.",
             )
+        try:
+            require_artifacts()
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         result = detect_call(audio_path)
     finally:
         try:
@@ -62,7 +67,7 @@ def detect(request: DetectRequest) -> dict:
         except OSError:
             pass
 
-    if result.get("error") == "all_stages_failed":
+    if result.get("error") in {"all_stages_failed", "stacker_missing"}:
         raise HTTPException(status_code=503, detail="All detection stages failed.")
 
     return {

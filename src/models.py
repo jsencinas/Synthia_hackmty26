@@ -152,13 +152,6 @@ def load_temperature(path: str = CALIBRATION_PATH) -> float:
     return float(data.get("temperature", 1.0))
 
 
-def save_calibration(temperature: float, extra: dict | None = None, path: str = CALIBRATION_PATH) -> None:
-    payload = {"temperature": float(temperature)}
-    if extra:
-        payload.update(extra)
-    Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-
 def stack_features(p_json: float, p_voice: float) -> list[float]:
     return [
         float(p_json),

@@ -4,8 +4,12 @@ audio/
 .venv/
 venv/
 __pycache__/
+*.pyc
 *.joblib
+modelo_*.json
+modelo_*.joblib
 waterfall_results.csv
+resultados_*.csv
 caracteristicas_*.csv
 outputs/
 data/
@@ -16,6 +20,7 @@ models/*
 !models/calibration.json
 !models/metadata.json
 .env
-.DS_Store
 .pytest_cache/
+pytest-cache-files-*/
+call_dna_v0_1/
 *.tmp

@@ -15,10 +15,11 @@ Your task: given a call, decide whether the caller is human or synthetic.
 
 Audio is distributed as `altur-challenge-audio.zip` (see Releases). Unzip it in the repo root so the files land in `audio/`.
 
-The production pipeline treats `manifest.csv`, `audio/`, and `turns/` as
-immutable inputs. Models do not train from checked-in feature tables. Timing
-boundaries and both feature sets are derived directly from each WAV by the same
-code used during serving.
+The production pipeline treats `manifest.csv` and `audio/` as immutable inputs.
+`turns/` is challenge reference only and is not read by training or serving.
+Models do not train from checked-in feature tables. Timing boundaries and both
+feature sets are derived directly from each WAV by energy VAD, using the same
+code in training, evaluation, and `/detect`. Requires Python 3.11+.
 
 ## The conversation
 
