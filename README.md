@@ -15,12 +15,6 @@ Your task: given a call, decide whether the caller is human or synthetic.
 
 Audio is distributed as `altur-challenge-audio.zip` (see Releases). Unzip it in the repo root so the files land in `audio/`.
 
-The production pipeline treats `manifest.csv` and `audio/` as immutable inputs.
-`turns/` is challenge reference only and is not read by training or serving.
-Models do not train from checked-in feature tables. Timing boundaries and both
-feature sets are derived directly from each WAV by energy VAD, using the same
-code in training, evaluation, and `/detect`. Requires Python 3.11+.
-
 ## The conversation
 
 Every call follows the same customer-service flow, whoever is calling. The agent asks callers to repeat information back,
@@ -31,63 +25,51 @@ Both sides are given to you for a reason: channel 1 tells you what the caller wa
 
 `train` and `val` are speaker-disjoint: no caller appears in both. Judging uses a hidden set of calls from callers and voices that appear in neither split.
 
-## Reproducible workflow
-
-Install runtime and training dependencies:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-Train production artifacts:
-
-```bash
-python -m src.train
-```
-
-This command selects `split=train` before feature extraction. Cross-validation,
-calibration, fusion fitting, and final fitting use training rows only. It never
-extracts VAL features or reports VAL metrics. Artifacts are written atomically
-to `models/` with train-only provenance and a source-data fingerprint.
-
-After the model and all decisions are frozen, run validation explicitly:
-
-```bash
-python -m src.evaluate
-```
-
-Evaluation loads existing artifacts, processes only `split=val`, prints metrics,
-and does not write models, thresholds, calibration, or feature caches. Repeated
-VAL inspection should not be used for model selection.
-
-For development and tests:
-
-```bash
-python -m pip install -r requirements-dev.txt
-python -m pytest
-```
-
 ## Evaluation
 
-Your system exposes `POST /detect`. It receives a stereo WAV clip (8 kHz, base64-encoded, channel 0 = caller, channel 1 = agent) and returns:
+Your system exposes `POST /detect`. The judge sends one call per request, as JSON:
+
+```json
+{
+  "call_id": "call_0181ce113ebe",
+  "audio_base64": "<base64 of the complete WAV file, same format as audio/*.wav>",
+  "sample_rate": 8000,
+  "channels": 2
+}
+```
+
+Channel 0 is the caller, channel 1 is the agent. Decode `audio_base64` and you have the exact bytes of a file from `audio/`.
+
+Respond with HTTP 200 and:
 
 ```json
 {"is_synthetic": true, "confidence": 0.87}
 ```
 
-`is_synthetic` is required. `confidence` is optional and used to break ties and reward calibration.
+`is_synthetic` (boolean) is required. `confidence` (0 to 1, your certainty in the `is_synthetic` value you returned) is optional; when every answer carries one we also report AUC and calibration, and it breaks ties.
 
-`confidence` is the probability of the returned decision, so it is always in
-the range 0.5–1.0. The internal synthetic-class probability is not exposed.
+Rules the judge applies:
 
-Run the API with:
+- 30 seconds per call. A timeout, a non-200 status, or a body without a boolean `is_synthetic` counts as a wrong answer.
+- Calls are 1 to 4 minutes long; the JSON body is up to about 5 MB.
+- The hidden set has callers and voices that are in neither `train` nor `val`. Main metric is balanced accuracy.
+- Your endpoint has to stay reachable during your judging slot; we call it live from your station.
+
+### Test your endpoint before judging
+
+`scripts/check_endpoint.py` is the judge's client. Point it at your URL and it sends dataset calls, validates the response shape, and prints accuracy and latency:
 
 ```bash
-uvicorn api.app:app
+python scripts/check_endpoint.py --url http://localhost:8000/detect --split val --n 20
 ```
 
-The endpoint accepts only the uploaded stereo 8 kHz WAV. It does not accept a
-local turns path; turn extraction always happens directly from that WAV.
+`scripts/example_server.py` is a minimal server that implements the contract with a placeholder decision, so you can see the plumbing work end to end:
+
+```bash
+python scripts/example_server.py --port 8000
+```
+
+Both scripts need only the Python standard library and the unzipped `audio/` folder.
 
 ## Terms
 
