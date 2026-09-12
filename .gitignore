@@ -1,3 +1,12 @@
 audio/
 *.zip
 .DS_Store
+.venv/
+venv/
+__pycache__/
+*.joblib
+*.csv
+outputs/
+data/
+models/
+.DS_Store
