@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-train_model.py
+train_turn_model.py
 Entrenamiento y evaluación de modelos de Machine Learning para clasificar llamadas
-como 'human' o 'synthetic' a partir de los datos en resultados_turns.csv.
+como 'human' o 'synthetic' a partir de los turnos de conversación.
 """
 
 import os
@@ -371,8 +371,8 @@ def main():
             print(f"  • {feat:35s}: {imp:.4f} ({imp*100:.1f}%)")
 
     # Guardar modelo serializado y metadata
-    ruta_modelo = "modelo_detector.joblib"
-    ruta_meta = "modelo_metadata.json"
+    ruta_modelo = "turn_model.joblib"
+    ruta_meta = "metadata_turn_model.json"
 
     joblib.dump(mejor_modelo, ruta_modelo)
 

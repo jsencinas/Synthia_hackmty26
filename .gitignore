@@ -5,7 +5,7 @@ audio/
 venv/
 __pycache__/
 *.joblib
-resultados_*.csv
+waterfall_results.csv
 caracteristicas_*.csv
 outputs/
 data/
