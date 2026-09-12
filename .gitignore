@@ -15,7 +15,7 @@ outputs/
 data/
 models/*
 !models/timing_model.joblib
-!models/voice_model.json
+!models/voice_model.joblib
 !models/stacker.joblib
 !models/calibration.json
 !models/metadata.json

@@ -1,15 +1,30 @@
-"""Run the three detection steps and fuse their scores.
+"""Run the detection steps and fuse their scores.
 
-Order: timing, voice, fuse those two; call STT only if they disagree
-or one of them failed.
+Order: one pass of feature extraction (turns, timing, voice), the timing head,
+the voice head, then their fusion. The transcript (STT) head is consulted only
+when the fused acoustic decision is uncertain and there is time budget left; it
+nudges the fused score rather than replacing it.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
-from src.features import extract_turns
-from src.models import load_stacker, stack_features
+from src.config import (
+    ELEVENLABS_API_KEY,
+    REQUEST_BUDGET_S,
+    STT_ENABLED,
+    STT_TIMEOUT_S,
+    STT_UNCERTAINTY_BAND,
+)
+from src.features import CallAudio, analyze_audio, load_audio
+from src.models import fuse_probabilities, logit, sigmoid
+
+# Weight of the transcript head's logit when it is blended into the fused score.
+STT_WEIGHT = 0.5
+# Minimum remaining budget needed before we even try the STT stage.
+STT_MIN_REMAINING_S = 4.0
 
 
 @dataclass
@@ -56,13 +71,7 @@ def heads_disagree(timing_result: StageResult, voice_result: StageResult) -> boo
 
 def fuse(timing_result: StageResult, voice_result: StageResult, stacker=None) -> StageResult:
     try:
-        if stacker is None:
-            stacker = load_stacker()
-        p = float(
-            stacker.predict_proba(
-                [stack_features(timing_result.p_synthetic, voice_result.p_synthetic)]
-            )[0, 1]
-        )
+        p = fuse_probabilities(timing_result.p_synthetic, voice_result.p_synthetic, stacker=stacker)
     except FileNotFoundError:
         return StageResult.failed("fusion", "stacker_missing")
     except Exception as exc:
@@ -74,10 +83,22 @@ def fuse(timing_result: StageResult, voice_result: StageResult, stacker=None) ->
         p_synthetic=p,
         certainty_pct=certainty_from_probability(p),
         features={
-            "p_json": timing_result.p_synthetic,
+            "p_timing": timing_result.p_synthetic,
             "p_voice": voice_result.p_synthetic,
             "disagree": heads_disagree(timing_result, voice_result),
         },
+    )
+
+
+def blend_with_stt(fused: StageResult, stt: StageResult) -> StageResult:
+    z = float(logit(fused.p_synthetic)) + STT_WEIGHT * float(logit(stt.p_synthetic))
+    p = float(sigmoid(z))
+    return StageResult(
+        stage="fusion+stt",
+        is_synthetic=label_from_probability(p),
+        p_synthetic=p,
+        certainty_pct=certainty_from_probability(p),
+        features={"p_fused": fused.p_synthetic, "p_stt": stt.p_synthetic, **stt.features},
     )
 
 
@@ -108,46 +129,66 @@ def finalize(result: StageResult | None, stages: list[StageResult] | None = None
     }
 
 
-def detect_call(audio_path: str) -> dict:
+def _stt_is_worth_it(fused: StageResult, started_at: float) -> bool:
+    if not (STT_ENABLED and ELEVENLABS_API_KEY):
+        return False
+    if abs(fused.p_synthetic - 0.5) > STT_UNCERTAINTY_BAND:
+        return False
+    remaining = REQUEST_BUDGET_S - (time.perf_counter() - started_at)
+    return remaining >= STT_MIN_REMAINING_S
+
+
+def detect_audio(audio: CallAudio, audio_path: str | None = None, started_at: float | None = None) -> dict:
     from src.stt import run as run_stt
-    from src.timing import run as run_timing
-    from src.voice import run as run_voice
+    from src.timing import score_features as score_timing
+    from src.voice import score_features as score_voice
+
+    started_at = time.perf_counter() if started_at is None else started_at
+    stages: list[StageResult] = []
 
     try:
-        turns_payload = extract_turns(audio_path)
-        if not turns_payload["turns"]:
-            turns_payload = None
-    except Exception:
-        turns_payload = None
+        analysis = analyze_audio(audio)
+    except Exception as exc:
+        stages.append(StageResult.failed("features", f"features_failed:{exc}"))
+        return finalize(None, stages)
 
-    stages: list[StageResult] = []
-    last_good: StageResult | None = None
-
-    timing_result = run_timing(turns_payload)
+    timing_result = score_timing(analysis.timing)
     stages.append(timing_result)
-    if timing_result.error is None:
-        last_good = timing_result
-
-    voice_result = run_voice(audio_path, turns_payload)
+    voice_result = score_voice(analysis.voice)
     stages.append(voice_result)
-    if voice_result.error is None:
-        last_good = voice_result
 
-    fused_result: StageResult | None = None
-    if timing_result.error is None and voice_result.error is None:
-        fused_result = fuse(timing_result, voice_result)
+    good_heads = [r for r in (timing_result, voice_result) if r.error is None]
+    if not good_heads:
+        return finalize(None, stages)
+    if len(good_heads) == 1:
+        # One head failed: answer with the other, no fusion possible.
+        return finalize(good_heads[0], stages)
+
+    fused_result = fuse(timing_result, voice_result)
+    stages.append(fused_result)
+    if fused_result.error is not None:
+        # Fall back to a plain average of the two heads.
+        p = 0.5 * (timing_result.p_synthetic + voice_result.p_synthetic)
+        fused_result = StageResult("fusion_avg", label_from_probability(p), p, 0.0)
         stages.append(fused_result)
-        if fused_result.error is None:
-            last_good = fused_result
-            if not heads_disagree(timing_result, voice_result):
-                return finalize(fused_result, stages)
-        else:
-            fused_result = None
 
-    stt_result = run_stt(audio_path, turns_payload)
+    if not _stt_is_worth_it(fused_result, started_at) or audio_path is None:
+        return finalize(fused_result, stages)
+
+    remaining = REQUEST_BUDGET_S - (time.perf_counter() - started_at)
+    stt_result = run_stt(audio_path, analysis.turns, timeout_s=min(STT_TIMEOUT_S, remaining))
     stages.append(stt_result)
     if stt_result.error is None:
-        return finalize(stt_result, stages)
-    if fused_result is not None:
-        return finalize(fused_result, stages)
-    return finalize(last_good, stages)
+        blended = blend_with_stt(fused_result, stt_result)
+        stages.append(blended)
+        return finalize(blended, stages)
+    return finalize(fused_result, stages)
+
+
+def detect_call(audio_path: str) -> dict:
+    started_at = time.perf_counter()
+    try:
+        audio = load_audio(audio_path)
+    except Exception as exc:
+        return finalize(None, [StageResult.failed("load", f"load_failed:{exc}")])
+    return detect_audio(audio, audio_path=audio_path, started_at=started_at)

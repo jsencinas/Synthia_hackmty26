@@ -1,4 +1,4 @@
-"""Trained artifacts: load/save models, temperature-calibrate timing scores, fuse heads."""
+"""Trained artifacts: build/load/save heads, fuse them, temperature-calibrate."""
 
 from __future__ import annotations
 
@@ -11,7 +11,10 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+from sklearn.ensemble import VotingClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
 from src.config import (
@@ -22,6 +25,61 @@ from src.config import (
     TIMING_MODEL_PATH,
     VOICE_MODEL_PATH,
 )
+
+RANDOM_STATE = 42
+
+# Each head is a soft-voting ensemble of a shallow gradient-boosted model and a
+# standardised logistic regression: the trees capture thresholds/interactions,
+# the linear model extrapolates smoothly to unseen callers and voices.
+TIMING_XGB_PARAMS = {
+    "n_estimators": 300,
+    "max_depth": 3,
+    "learning_rate": 0.03,
+    "min_child_weight": 4,
+    "subsample": 0.8,
+    "colsample_bytree": 0.6,
+    "reg_lambda": 2.0,
+    "reg_alpha": 0.2,
+    "random_state": RANDOM_STATE,
+    "eval_metric": "logloss",
+    "n_jobs": 4,
+}
+VOICE_XGB_PARAMS = {
+    "n_estimators": 600,
+    "max_depth": 2,
+    "learning_rate": 0.02,
+    "min_child_weight": 4,
+    "subsample": 0.8,
+    "colsample_bytree": 0.4,
+    "reg_lambda": 2.0,
+    "reg_alpha": 0.2,
+    "random_state": RANDOM_STATE,
+    "eval_metric": "logloss",
+    "n_jobs": 4,
+}
+LR_C = 0.1
+
+
+def build_head(xgb_params: dict, labels: np.ndarray) -> VotingClassifier:
+    labels = np.asarray(labels)
+    negatives = max(int((labels == 0).sum()), 1)
+    positives = max(int((labels == 1).sum()), 1)
+    xgb = XGBClassifier(scale_pos_weight=negatives / positives, **xgb_params)
+    linear = Pipeline(
+        [
+            ("scale", StandardScaler()),
+            (
+                "lr",
+                LogisticRegression(
+                    C=LR_C,
+                    class_weight="balanced",
+                    max_iter=5000,
+                    random_state=RANDOM_STATE,
+                ),
+            ),
+        ]
+    )
+    return VotingClassifier([("xgb", xgb), ("lr", linear)], voting="soft")
 
 
 def artifact_paths() -> list[Path]:
@@ -66,15 +124,6 @@ def atomic_joblib_dump(value, destination: str | Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def atomic_xgb_save(model: XGBClassifier, destination: str | Path) -> None:
-    temporary = _temporary_path(destination, suffix=".json")
-    try:
-        model.save_model(temporary)
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 def atomic_json_dump(payload: dict, destination: str | Path) -> None:
     temporary = _temporary_path(destination, suffix=".json")
     try:
@@ -93,10 +142,8 @@ def load_timing_model():
 
 
 @lru_cache(maxsize=1)
-def load_voice_model() -> XGBClassifier:
-    model = XGBClassifier()
-    model.load_model(VOICE_MODEL_PATH)
-    return model
+def load_voice_model():
+    return joblib.load(VOICE_MODEL_PATH)
 
 
 @lru_cache(maxsize=1)
@@ -109,6 +156,20 @@ def load_metadata() -> dict:
     return json.loads(Path(METADATA_PATH).read_text(encoding="utf-8"))
 
 
+@lru_cache(maxsize=1)
+def load_temperature() -> float:
+    calibration_path = Path(CALIBRATION_PATH)
+    if not calibration_path.exists():
+        return 1.0
+    data = json.loads(calibration_path.read_text(encoding="utf-8"))
+    return float(data.get("temperature", 1.0))
+
+
+def clear_model_cache() -> None:
+    for loader in (load_timing_model, load_voice_model, load_stacker, load_metadata, load_temperature):
+        loader.cache_clear()
+
+
 def require_artifacts() -> None:
     required = artifact_paths()
     missing = [str(path) for path in required if not Path(path).is_file()]
@@ -117,60 +178,80 @@ def require_artifacts() -> None:
     Path(ARTIFACT_DIR).mkdir(parents=True, exist_ok=True)
 
 
-def apply_temperature(p_synthetic: float, temperature: float) -> float:
-    p = min(max(float(p_synthetic), 1e-6), 1.0 - 1e-6)
+def warm_up() -> None:
+    """Load every artifact into memory (call once at server start-up)."""
+    require_artifacts()
+    load_timing_model()
+    load_voice_model()
+    load_stacker()
+    load_metadata()
+    load_temperature()
+
+
+# --- probability helpers --------------------------------------------------------
+
+def logit(p) -> np.ndarray:
+    p = np.clip(np.asarray(p, dtype=float), 1e-5, 1.0 - 1e-5)
+    return np.log(p / (1.0 - p))
+
+
+def sigmoid(z) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-np.asarray(z, dtype=float)))
+
+
+def apply_temperature(p_synthetic, temperature: float):
     temperature = max(float(temperature), 0.05)
-    logit = np.log(p / (1.0 - p))
-    return float(1.0 / (1.0 + np.exp(-logit / temperature)))
+    out = sigmoid(logit(p_synthetic) / temperature)
+    return float(out) if np.ndim(out) == 0 else out
 
 
 def fit_temperature(probabilities, labels) -> float:
-    p = np.clip(np.asarray(probabilities, dtype=float), 1e-6, 1.0 - 1e-6)
+    """Temperature that minimises NLL, restricted to softening (T >= 1).
+
+    When the training scores are (nearly) separable the NLL optimum is T -> 0,
+    i.e. sharpening towards 0/1; that is over-confidence that does not survive
+    unseen callers and voices, so we never allow it.
+    """
+    z = logit(probabilities)
     y = np.asarray(labels, dtype=float)
 
     def nll(temperature: float) -> float:
-        calibrated = np.array([apply_temperature(v, temperature) for v in p])
-        calibrated = np.clip(calibrated, 1e-6, 1.0 - 1e-6)
+        calibrated = np.clip(sigmoid(z / temperature), 1e-6, 1.0 - 1e-6)
         return float(-np.mean(y * np.log(calibrated) + (1.0 - y) * np.log(1.0 - calibrated)))
 
-    grid = np.linspace(0.2, 4.0, 39)
-    best_t = 1.0
-    best = nll(best_t)
-    for temperature in grid:
-        score = nll(float(temperature))
-        if score < best:
-            best = score
-            best_t = float(temperature)
-    return best_t
+    grid = np.linspace(1.0, 3.0, 41)
+    scores = [nll(float(t)) for t in grid]
+    return float(grid[int(np.argmin(scores))])
 
 
-def load_temperature(path: str = CALIBRATION_PATH) -> float:
-    calibration_path = Path(path)
-    if not calibration_path.exists():
-        return 1.0
-    data = json.loads(calibration_path.read_text(encoding="utf-8"))
-    return float(data.get("temperature", 1.0))
+# --- fusion -----------------------------------------------------------------------
+
+def stack_features(p_timing, p_voice) -> np.ndarray:
+    """Stacker input: the two head logits (works for scalars or arrays)."""
+    return np.column_stack([logit(p_timing), logit(p_voice)])
 
 
-def stack_features(p_json: float, p_voice: float) -> list[float]:
-    return [
-        float(p_json),
-        float(p_voice),
-        abs(float(p_json) - float(p_voice)),
-    ]
-
-
-def fit_stacker(p_json, p_voice, labels) -> LogisticRegression:
-    X = np.array(
-        [stack_features(j, v) for j, v in zip(p_json, p_voice)],
-        dtype=float,
-    )
+def fit_stacker(p_timing, p_voice, labels) -> LogisticRegression:
+    X = stack_features(p_timing, p_voice)
     y = np.asarray(labels, dtype=int)
+    # Moderate regularisation: the head logits are already well separated on
+    # train, and an unregularised stacker would just inflate them.
     model = LogisticRegression(
-        C=0.5,
+        C=0.3,
         class_weight="balanced",
         max_iter=1000,
-        random_state=42,
+        random_state=RANDOM_STATE,
     )
     model.fit(X, y)
     return model
+
+
+def fuse_probabilities(p_timing, p_voice, stacker=None, temperature: float | None = None):
+    """Fused, temperature-calibrated P(synthetic) from the two head probabilities."""
+    if stacker is None:
+        stacker = load_stacker()
+    if temperature is None:
+        temperature = load_temperature()
+    fused = stacker.predict_proba(stack_features(p_timing, p_voice))[:, 1]
+    fused = apply_temperature(fused, temperature)
+    return float(fused[0]) if np.ndim(p_timing) == 0 else fused
