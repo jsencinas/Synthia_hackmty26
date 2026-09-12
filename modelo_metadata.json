@@ -12,33 +12,33 @@
     "duracion_interrupciones_por_turno",
     "ratio_habla_pausa"
   ],
-  "umbral_recomendado": 0.66,
+  "umbral_recomendado": 0.7,
   "metricas_val_umbral_0_5": {
-    "roc_auc": 0.8267,
+    "roc_auc": 0.8243,
     "accuracy": 0.6901,
     "f1_score": 0.6944,
     "precision": 0.6579,
     "recall": 0.7353
   },
   "metricas_val_umbral_optimo": {
-    "umbral": 0.66,
-    "accuracy": 0.7746,
-    "f1_score": 0.75
+    "umbral": 0.7,
+    "accuracy": 0.7887,
+    "f1_score": 0.7541
   },
   "mapeo_clases": {
     "0": "human",
     "1": "synthetic"
   },
   "importancias": {
-    "numero_turnos_caller": 0.1748,
-    "duracion_promedio_caller": 0.0733,
-    "pausa_promedio_caller": 0.0597,
-    "desviacion_estandar_latencia": 0.0856,
-    "interrupciones_agente": 0.2197,
-    "duracion_total_interrupciones": 0.1217,
-    "duracion_promedio_interrupcion": 0.058,
-    "tasa_interrupciones": 0.0675,
-    "duracion_interrupciones_por_turno": 0.0751,
-    "ratio_habla_pausa": 0.0645
+    "numero_turnos_caller": 0.1795,
+    "duracion_promedio_caller": 0.0721,
+    "pausa_promedio_caller": 0.058,
+    "desviacion_estandar_latencia": 0.083,
+    "interrupciones_agente": 0.2026,
+    "duracion_total_interrupciones": 0.1348,
+    "duracion_promedio_interrupcion": 0.0549,
+    "tasa_interrupciones": 0.0873,
+    "duracion_interrupciones_por_turno": 0.0607,
+    "ratio_habla_pausa": 0.0671
   }
 }
