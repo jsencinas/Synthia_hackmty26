@@ -4,3 +4,4 @@ audio/
 .venv/
 __pycache__/
 *.joblib
+.vscode/
