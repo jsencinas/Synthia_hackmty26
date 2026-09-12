@@ -12,33 +12,41 @@
     "duracion_interrupciones_por_turno",
     "ratio_habla_pausa"
   ],
-  "umbral_recomendado": 0.7,
-  "metricas_val_umbral_0_5": {
-    "roc_auc": 0.8243,
-    "accuracy": 0.6901,
-    "f1_score": 0.6944,
-    "precision": 0.6579,
-    "recall": 0.7353
+  "umbral_recomendado": 0.66,
+  "seleccion_modelo": {
+    "metodo": "cross_val_score (5-fold) sobre train_fit, sin usar val ni test_holdout",
+    "cv_train_auc": 0.8873,
+    "cv_train_auc_std": 0.0501
   },
-  "metricas_val_umbral_optimo": {
-    "umbral": 0.7,
-    "accuracy": 0.7887,
-    "f1_score": 0.7541
+  "metricas_calibracion_umbral": {
+    "umbral": 0.66,
+    "accuracy": 0.7746,
+    "f1_score": 0.7333,
+    "n_muestras": 71,
+    "fuente": "val completo"
+  },
+  "metricas_test_holdout": {
+    "umbral": 0.66,
+    "roc_auc": 0.9306,
+    "accuracy": 0.7667,
+    "f1_score": 0.7742,
+    "n_muestras": 30,
+    "fuente": "30 llamadas separadas de train, nunca usadas para entrenar ni calibrar"
   },
   "mapeo_clases": {
     "0": "human",
     "1": "synthetic"
   },
   "importancias": {
-    "numero_turnos_caller": 0.1795,
-    "duracion_promedio_caller": 0.0721,
-    "pausa_promedio_caller": 0.058,
-    "desviacion_estandar_latencia": 0.083,
-    "interrupciones_agente": 0.2026,
-    "duracion_total_interrupciones": 0.1348,
-    "duracion_promedio_interrupcion": 0.0549,
-    "tasa_interrupciones": 0.0873,
-    "duracion_interrupciones_por_turno": 0.0607,
-    "ratio_habla_pausa": 0.0671
+    "numero_turnos_caller": 0.1536,
+    "duracion_promedio_caller": 0.0732,
+    "pausa_promedio_caller": 0.0714,
+    "desviacion_estandar_latencia": 0.0836,
+    "interrupciones_agente": 0.2218,
+    "duracion_total_interrupciones": 0.1336,
+    "duracion_promedio_interrupcion": 0.0628,
+    "tasa_interrupciones": 0.0978,
+    "duracion_interrupciones_por_turno": 0.051,
+    "ratio_habla_pausa": 0.0512
   }
 }
