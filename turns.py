@@ -37,11 +37,6 @@ def analizar_llamada(ruta_json):
     # Ordenar cronológicamente el caller para el cálculo de pausas
     channel_0.sort(key=lambda x: x["start"])
 
-    # ========================================
-    # DURACIÓN TOTAL DE LA LLAMADA
-    # ========================================
-
-    duracion_llamada = max(t["end"] for t in turns) - min(t["start"] for t in turns)
 
     # ========================================
     # CHANNEL 0
@@ -116,7 +111,6 @@ def analizar_llamada(ruta_json):
 
     return {
         "anon_id": anon_id,
-        "duracion_llamada": duracion_llamada,
         "intervenciones_caller": len(channel_0),
         "duracion_promedio_caller": promedio_duracion_caller,
         "pausa_promedio": promedio_pausa,
@@ -238,7 +232,6 @@ print(
 
 comparacion = df_resultados.groupby("label")[
     [
-        "duracion_llamada",
         "intervenciones_caller",
         "duracion_promedio_caller",
         "pausa_promedio",
