@@ -17,6 +17,7 @@ CARPETA_TURNS = "turns"
 CARPETA_AUDIO = "audio"
 
 MODELO_AUDIO_PATH = "modelo_xgboost.json"
+MANIFEST_PATH = "manifest.csv"
 
 # Si el modelo de JSON tiene esta confianza o más, nos quedamos con su decisión.
 # Si no, bajamos un nivel y usamos el modelo de audio.
@@ -370,9 +371,75 @@ def procesar_todas_las_llamadas():
         print("Resultados guardados en:")
         print("resultados_waterfall.csv")
 
+        calcular_accuracy(df_resultados)
+
     else:
 
         print("No se procesaron llamadas.")
+
+
+def calcular_accuracy(df_resultados):
+    """
+    Cruza los resultados del waterfall contra las etiquetas reales del
+    manifest y calcula accuracy global y por nivel (JSON vs AUDIO_XGBOOST).
+    """
+
+    if not os.path.exists(MANIFEST_PATH):
+
+        print()
+        print("No se encontró", MANIFEST_PATH, "- no se puede calcular accuracy.")
+
+        return
+
+    manifest = pd.read_csv(MANIFEST_PATH)
+
+    manifest_renombrado = manifest[["anon_id", "label"]].rename(
+        columns={"label": "label_real"}
+    )
+
+    df_comparado = df_resultados.merge(
+        manifest_renombrado,
+        on="anon_id",
+        how="left"
+    )
+
+    df_comparado = df_comparado.dropna(subset=["label_real"])
+
+    if len(df_comparado) == 0:
+
+        print()
+        print("Ningún anon_id de los resultados coincide con el manifest.")
+
+        return
+
+    df_comparado["correcto"] = (
+        df_comparado["label"] == df_comparado["label_real"]
+    )
+
+    print()
+    print("=" * 60)
+    print("ACCURACY DEL MODELO COMBINADO (WATERFALL)")
+    print("=" * 60)
+
+    accuracy_global = df_comparado["correcto"].mean()
+
+    print(
+        "Accuracy global:",
+        round(accuracy_global, 4),
+        f"({df_comparado['correcto'].sum()}/{len(df_comparado)})"
+    )
+
+    print()
+    print("Accuracy por nivel del waterfall:")
+
+    for nivel, grupo in df_comparado.groupby("nivel"):
+
+        acc_nivel = grupo["correcto"].mean()
+
+        print(
+            f"  {nivel:15s}: {round(acc_nivel, 4)} "
+            f"({grupo['correcto'].sum()}/{len(grupo)} llamadas)"
+        )
 
 
 if __name__ == "__main__":
