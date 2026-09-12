@@ -1,3 +1,5 @@
+"""Fit timing, voice, and fusion models on the train split only."""
+
 from __future__ import annotations
 
 import argparse
@@ -8,18 +10,23 @@ import pandas as pd
 from sklearn.model_selection import StratifiedKFold
 from xgboost import XGBClassifier
 
-from src.artifacts import atomic_joblib_dump, atomic_json_dump, atomic_xgb_save
-from src.calibration import apply_temperature, fit_temperature
 from src.config import (
     CALIBRATION_PATH,
-    JSON_METADATA_PATH,
-    JSON_MODEL_PATH,
+    METADATA_PATH,
     STACKER_PATH,
+    TIMING_MODEL_PATH,
     VOICE_MODEL_PATH,
 )
 from src.data import audio_path_for, dataset_fingerprint, load_split, validate_audio_files
 from src.features import TIMING_FEATURES, VOICE_FEATURES, extract_features
-from src.fusion import fit_stacker
+from src.models import (
+    apply_temperature,
+    atomic_joblib_dump,
+    atomic_json_dump,
+    atomic_xgb_save,
+    fit_stacker,
+    fit_temperature,
+)
 
 
 RANDOM_STATE = 42
@@ -124,11 +131,11 @@ def train() -> dict:
         "trained_on": "train_oof_only",
     }
 
-    atomic_joblib_dump(timing_model, JSON_MODEL_PATH)
+    atomic_joblib_dump(timing_model, TIMING_MODEL_PATH)
     atomic_xgb_save(voice_model, VOICE_MODEL_PATH)
     atomic_joblib_dump(stacker, STACKER_PATH)
     atomic_json_dump(calibration, CALIBRATION_PATH)
-    atomic_json_dump(metadata, JSON_METADATA_PATH)
+    atomic_json_dump(metadata, METADATA_PATH)
     print(f"Saved clean train-only artifacts; fingerprint={fingerprint}")
     return metadata
 

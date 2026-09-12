@@ -1,3 +1,5 @@
+"""Project paths and runtime settings."""
+
 import os
 from pathlib import Path
 
@@ -11,8 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "manifest.csv"
 AUDIO_DIR = ROOT / "audio"
 ARTIFACT_DIR = ROOT / "models"
-JSON_MODEL_PATH = ARTIFACT_DIR / "timing_model.joblib"
-JSON_METADATA_PATH = ARTIFACT_DIR / "metadata.json"
+TIMING_MODEL_PATH = ARTIFACT_DIR / "timing_model.joblib"
+METADATA_PATH = ARTIFACT_DIR / "metadata.json"
 VOICE_MODEL_PATH = ARTIFACT_DIR / "voice_model.json"
 STACKER_PATH = ARTIFACT_DIR / "stacker.joblib"
 CALIBRATION_PATH = ARTIFACT_DIR / "calibration.json"

@@ -41,7 +41,7 @@ python -m pip install -r requirements.txt
 Train production artifacts:
 
 ```bash
-python -m src.train_serving
+python -m src.train
 ```
 
 This command selects `split=train` before feature extraction. Cross-validation,

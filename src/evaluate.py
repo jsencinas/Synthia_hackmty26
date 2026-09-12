@@ -1,3 +1,5 @@
+"""Score frozen train-only artifacts on the val split. Does not write models."""
+
 from __future__ import annotations
 
 import json
@@ -12,18 +14,19 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from src.artifacts import (
+from src.data import audio_path_for, load_split, validate_audio_files
+from src.features import TIMING_FEATURES, VOICE_FEATURES, extract_features
+from src.models import (
+    apply_temperature,
     artifact_hashes,
     load_metadata,
     load_stacker,
+    load_temperature,
     load_timing_model,
     load_voice_model,
     require_artifacts,
+    stack_features,
 )
-from src.calibration import apply_temperature, load_temperature
-from src.data import audio_path_for, load_split, validate_audio_files
-from src.features import TIMING_FEATURES, VOICE_FEATURES, extract_features
-from src.fusion import stack_features
 
 
 def build_validation_dataset(

@@ -1,3 +1,5 @@
+"""Speaker turns from WAV energy, then timing and voice features for the models."""
+
 from __future__ import annotations
 
 import statistics
@@ -7,8 +9,11 @@ import librosa
 import numpy as np
 import soundfile as sf
 
-from src.turns_from_wav import extract_turns
 
+FRAME_MS = 30
+HANGOVER_FRAMES = 8
+MIN_TURN_S = 0.15
+ENERGY_PERCENTILE = 60
 
 TIMING_BASE_FEATURES = [
     "numero_turnos_caller",
@@ -25,6 +30,76 @@ TIMING_FEATURES = TIMING_BASE_FEATURES + [
     "ratio_habla_pausa",
 ]
 VOICE_FEATURES = ["mfcc_1_std", "shimmer", "pitch_delta_std", "jitter"]
+
+
+def _frame_energy(samples: np.ndarray, frame_len: int) -> np.ndarray:
+    pad = (-len(samples)) % frame_len
+    if pad:
+        samples = np.pad(samples, (0, pad))
+    frames = samples.reshape(-1, frame_len)
+    return np.sqrt(np.mean(frames * frames, axis=1))
+
+
+def _speech_mask(energy: np.ndarray) -> np.ndarray:
+    threshold = float(np.percentile(energy, ENERGY_PERCENTILE))
+    threshold = max(threshold, 1e-4)
+    raw = energy > threshold
+    mask = raw.copy()
+    hangover = 0
+    for i, voiced in enumerate(raw):
+        if voiced:
+            hangover = HANGOVER_FRAMES
+            mask[i] = True
+        elif hangover > 0:
+            hangover -= 1
+            mask[i] = True
+        else:
+            mask[i] = False
+    return mask
+
+
+def _mask_to_turns(mask: np.ndarray, frame_s: float, channel: int) -> list[dict]:
+    turns = []
+    start = None
+    for i, spoken in enumerate(mask):
+        if spoken and start is None:
+            start = i
+        elif not spoken and start is not None:
+            end = i
+            if (end - start) * frame_s >= MIN_TURN_S:
+                turns.append({
+                    "channel": channel,
+                    "start": round(start * frame_s, 4),
+                    "end": round(end * frame_s, 4),
+                })
+            start = None
+    if start is not None:
+        end = len(mask)
+        if (end - start) * frame_s >= MIN_TURN_S:
+            turns.append({
+                "channel": channel,
+                "start": round(start * frame_s, 4),
+                "end": round(end * frame_s, 4),
+            })
+    return turns
+
+
+def extract_turns(audio_path: str) -> dict:
+    audio, sample_rate = sf.read(audio_path, always_2d=True)
+    if audio.shape[1] == 1:
+        audio = np.repeat(audio, 2, axis=1)
+
+    frame_len = max(int(sample_rate * FRAME_MS / 1000), 1)
+    frame_s = frame_len / float(sample_rate)
+    turns = []
+    for channel in (0, 1):
+        samples = np.asarray(audio[:, channel], dtype=np.float64)
+        energy = _frame_energy(samples, frame_len)
+        mask = _speech_mask(energy)
+        turns.extend(_mask_to_turns(mask, frame_s, channel))
+
+    turns.sort(key=lambda t: (t["start"], t["channel"]))
+    return {"turns": turns}
 
 
 def _validated_turns(payload: dict) -> list[dict]:

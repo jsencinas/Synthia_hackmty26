@@ -1,12 +1,14 @@
+"""Step 2: score caller voice acoustics."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import pandas as pd
 
-from src.artifacts import load_voice_model
+from src.detect import StageResult, certainty_from_probability, label_from_probability
 from src.features import VOICE_FEATURES, voice_features
-from src.types import StageResult, certainty_from_probability, label_from_probability
+from src.models import load_voice_model
 
 
 def run(audio_path: str, turns_payload: dict | None) -> StageResult:

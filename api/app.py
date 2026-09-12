@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.escalation import detect_call
+from src.detect import detect_call
 
 
 app = FastAPI(title="HackMTY caller detector")

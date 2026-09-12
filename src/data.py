@@ -1,3 +1,5 @@
+"""Call dataset: load a split from the manifest, find WAVs, and check leakage."""
+
 from __future__ import annotations
 
 import hashlib
