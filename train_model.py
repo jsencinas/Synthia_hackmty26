@@ -10,7 +10,7 @@ import json
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import (
     RandomForestClassifier,
@@ -81,9 +81,18 @@ def obtener_nombres_features() -> list:
     ]
 
 
-def cargar_datos(ruta_csv: str = "resultados_turns.csv"):
+def cargar_datos(ruta_csv: str = "resultados_turns.csv", n_test_holdout: int = 30):
     """
     Carga el dataset y separa en splits train y val según la columna 'split'.
+
+    De 'train' se separan n_test_holdout llamadas (estratificadas por clase)
+    para formar un 'test_holdout' que nunca se usa para entrenar ni para
+    elegir modelo - solo se toca una vez, al final, para reportar la métrica
+    real de generalización.
+
+    'val' se deja completo (sin partir) y se usa únicamente para calibrar
+    el umbral de decisión.
+
     Convierte label 'synthetic' en 1 y 'human' en 0.
     """
     if not os.path.exists(ruta_csv):
@@ -96,15 +105,39 @@ def cargar_datos(ruta_csv: str = "resultados_turns.csv"):
     train_df = df[df["split"] == "train"].copy()
     val_df = df[df["split"] == "val"].copy()
 
-    # Mapeo: synthetic = 1, human = 0
-    # Esto se alinea con la especificación 'is_synthetic': true/false
-    y_train = (train_df["label"] == "synthetic").astype(int)
-    X_train = train_df[features]
+    y_train_completo = (train_df["label"] == "synthetic").astype(int)
+    X_train_completo = train_df[features]
+
+    # Separamos n_test_holdout llamadas de TRAIN (no de val) para el reporte final.
+    # Al venir del split más grande, apenas reduce los datos de entrenamiento
+    # y deja val completo disponible para calibrar el umbral.
+    (
+        X_train_fit,
+        X_test_holdout,
+        y_train_fit,
+        y_test_holdout,
+    ) = train_test_split(
+        X_train_completo,
+        y_train_completo,
+        test_size=n_test_holdout,
+        stratify=y_train_completo,
+        random_state=42,
+    )
 
     y_val = (val_df["label"] == "synthetic").astype(int)
     X_val = val_df[features]
 
-    return X_train, y_train, X_val, y_val, features, train_df, val_df
+    return (
+        X_train_fit,
+        y_train_fit,
+        X_val,
+        y_val,
+        X_test_holdout,
+        y_test_holdout,
+        features,
+        train_df,
+        val_df,
+    )
 
 
 def construir_modelos(random_state: int = 42) -> dict:
@@ -176,18 +209,19 @@ def construir_modelos(random_state: int = 42) -> dict:
     return modelos
 
 
-def calibrar_umbral(modelo, X_val, y_val):
+def calibrar_umbral(modelo, X_val_calib, y_val_calib):
     """
     Evalúa diferentes umbrales de decisión para la probabilidad de 'synthetic'
-    y selecciona el que maximiza la métrica F1-Score y Accuracy en validación.
+    usando SOLO el subset de calibración (val_calib), y selecciona el que
+    maximiza la métrica F1-Score y Accuracy. val_test nunca se toca aquí.
     """
-    probs = modelo.predict_proba(X_val)[:, 1]
+    probs = modelo.predict_proba(X_val_calib)[:, 1]
     mejores_metricas = {"umbral": 0.5, "accuracy": 0.0, "f1": 0.0}
 
     for umbral in np.arange(0.30, 0.72, 0.02):
         preds = (probs >= umbral).astype(int)
-        acc = accuracy_score(y_val, preds)
-        f1 = f1_score(y_val, preds, zero_division=0)
+        acc = accuracy_score(y_val_calib, preds)
+        f1 = f1_score(y_val_calib, preds, zero_division=0)
 
         score = (acc + f1) / 2.0
         if score > (mejores_metricas["accuracy"] + mejores_metricas["f1"]) / 2.0:
@@ -205,14 +239,29 @@ def main():
     print("DETECCIÓN DE LLAMADAS HUMAN VS SYNTHETIC - ENTRENAMIENTO DE MODELOS")
     print("=" * 80)
 
-    X_train, y_train, X_val, y_val, features, train_df, val_df = cargar_datos()
+    (
+        X_train_fit,
+        y_train_fit,
+        X_val,
+        y_val,
+        X_test_holdout,
+        y_test_holdout,
+        features,
+        train_df,
+        val_df,
+    ) = cargar_datos()
 
     print(f"\nDatos cargados exitosamente:")
-    print(f"  • Muestras de entrenamiento (Train): {len(X_train)} "
-          f"(Human: {(y_train == 0).sum()}, Synthetic: {(y_train == 1).sum()})")
-    print(f"  • Muestras de validación   (Val):   {len(X_val)} "
+    print(f"  • Muestras de entrenamiento (train_fit):    {len(X_train_fit)} "
+          f"(Human: {(y_train_fit == 0).sum()}, Synthetic: {(y_train_fit == 1).sum()})")
+    print(f"  • Muestras de calibración   (val completo): {len(X_val)} "
           f"(Human: {(y_val == 0).sum()}, Synthetic: {(y_val == 1).sum()})")
+    print(f"  • Muestras de test final    (test_holdout):  {len(X_test_holdout)} "
+          f"(Human: {(y_test_holdout == 0).sum()}, Synthetic: {(y_test_holdout == 1).sum()})")
     print(f"  • Total características ({len(features)}): {', '.join(features)}")
+    print("\n  Nota: test_holdout sale de 'train' (no de 'val') y no se usa para")
+    print("  entrenar ni para elegir modelo - solo se toca al final, para reportar")
+    print("  la métrica real. 'val' queda completo, dedicado solo a calibrar el umbral.")
 
     modelos = construir_modelos()
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
@@ -220,89 +269,96 @@ def main():
     resultados_comparacion = []
 
     print("\n" + "-" * 80)
-    print("1. EVALUACIÓN Y COMPARACIÓN DE MODELOS")
+    print("1. EVALUACIÓN Y COMPARACIÓN DE MODELOS (solo con cross-validation en train_fit)")
     print("-" * 80)
 
     for nombre, modelo in modelos.items():
-        # Validación cruzada 5-fold sobre el split de train
-        cv_scores = cross_val_score(modelo, X_train, y_train, cv=skf, scoring="roc_auc")
+        # Validación cruzada 5-fold sobre train_fit.
+        # Esta es la ÚNICA señal que se usa para elegir el modelo.
+        cv_scores = cross_val_score(modelo, X_train_fit, y_train_fit, cv=skf, scoring="roc_auc")
         cv_auc = cv_scores.mean()
+        cv_auc_std = cv_scores.std()
 
-        # Entrenar en conjunto de train completo
-        modelo.fit(X_train, y_train)
-
-        # Predicciones sobre validación
-        val_preds = modelo.predict(X_val)
-        val_probs = modelo.predict_proba(X_val)[:, 1]
-
-        acc = accuracy_score(y_val, val_preds)
-        bal_acc = balanced_accuracy_score(y_val, val_preds)
-        prec = precision_score(y_val, val_preds, zero_division=0)
-        rec = recall_score(y_val, val_preds, zero_division=0)
-        f1 = f1_score(y_val, val_preds, zero_division=0)
-        roc_auc = roc_auc_score(y_val, val_probs)
+        # Entrenar en train_fit completo
+        modelo.fit(X_train_fit, y_train_fit)
 
         resultados_comparacion.append(
             {
                 "Modelo": nombre,
                 "CV Train AUC": round(cv_auc, 4),
-                "Val ROC-AUC": round(roc_auc, 4),
-                "Val Acc": round(acc, 4),
-                "Val Bal Acc": round(bal_acc, 4),
-                "Val Prec": round(prec, 4),
-                "Val Recall": round(rec, 4),
-                "Val F1": round(f1, 4),
+                "CV Train AUC std": round(cv_auc_std, 4),
                 "_instancia": modelo,
             }
         )
 
     df_res = pd.DataFrame(resultados_comparacion).drop(columns=["_instancia"])
-    df_res = df_res.sort_values(by="Val ROC-AUC", ascending=False).reset_index(drop=True)
+    df_res = df_res.sort_values(by="CV Train AUC", ascending=False).reset_index(drop=True)
     print(df_res.to_string(index=False))
 
-    # Seleccionar el mejor modelo según combinación de ROC-AUC en validación y estabilidad en CV
-    mejor_resultado = max(resultados_comparacion, key=lambda r: (r["Val ROC-AUC"] + r["CV Train AUC"]) / 2)
+    # Seleccionar el mejor modelo SOLO según CV Train AUC (sin mirar val ni test_holdout)
+    mejor_resultado = max(resultados_comparacion, key=lambda r: r["CV Train AUC"])
     mejor_nombre = mejor_resultado["Modelo"]
     mejor_modelo = mejor_resultado["_instancia"]
 
     print("\n" + "=" * 80)
-    print(f"MEJOR MODELO SELECCIONADO: {mejor_nombre}")
+    print(f"MEJOR MODELO SELECCIONADO (por CV en train_fit): {mejor_nombre}")
     print("=" * 80)
 
-    val_preds_std = mejor_modelo.predict(X_val)
-    val_probs_best = mejor_modelo.predict_proba(X_val)[:, 1]
+    # ------------------------------------------------------------------
+    # A partir de aquí es la ÚNICA vez que tocamos val y test_holdout.
+    # ------------------------------------------------------------------
 
-    print("\nReporte de Clasificación en Validación (umbral estándar 0.50):")
+    # Calibración de umbral usando val completo
+    calibracion = calibrar_umbral(mejor_modelo, X_val, y_val)
+    umbral_optimo = calibracion["umbral"]
+
+    print(f"\nCalibración de Umbral (usando val completo, {len(X_val)} muestras):")
+    print(f"  • Umbral óptimo encontrado: {umbral_optimo:.2f}")
+    print(f"  • Accuracy en val con ese umbral: {calibracion['accuracy']:.4f}")
+    print(f"  • F1-Score en val con ese umbral: {calibracion['f1']:.4f}")
+
+    # Reporte final: única vez que se usa test_holdout, y solo para reportar
+    test_probs = mejor_modelo.predict_proba(X_test_holdout)[:, 1]
+    test_preds_std = (test_probs >= 0.50).astype(int)
+    test_preds_opt = (test_probs >= umbral_optimo).astype(int)
+
+    print(f"\n" + "-" * 80)
+    print(f"REPORTE FINAL SOBRE test_holdout ({len(X_test_holdout)} muestras nunca antes usadas)")
+    print("-" * 80)
+
+    print("\nCon umbral estándar (0.50):")
     print(
         classification_report(
-            y_val,
-            val_preds_std,
+            y_test_holdout,
+            test_preds_std,
             target_names=["human (0)", "synthetic (1)"],
             digits=4,
         )
     )
 
-    cm = confusion_matrix(y_val, val_preds_std)
-    print("Matriz de Confusión (Umbral 0.50):")
+    print(f"Con umbral calibrado ({umbral_optimo:.2f}):")
+    print(
+        classification_report(
+            y_test_holdout,
+            test_preds_opt,
+            target_names=["human (0)", "synthetic (1)"],
+            digits=4,
+        )
+    )
+
+    roc_auc_test = roc_auc_score(y_test_holdout, test_probs)
+    acc_test_opt = accuracy_score(y_test_holdout, test_preds_opt)
+    f1_test_opt = f1_score(y_test_holdout, test_preds_opt)
+
+    print(f"ROC-AUC en test_holdout: {roc_auc_test:.4f}")
+    print(f"Accuracy en test_holdout (umbral calibrado): {acc_test_opt:.4f}")
+    print(f"F1-Score en test_holdout (umbral calibrado): {f1_test_opt:.4f}")
+
+    cm_test = confusion_matrix(y_test_holdout, test_preds_opt)
+    print("\nMatriz de Confusión en test_holdout (Umbral Calibrado):")
     print(f"                Predicho Human    Predicho Synthetic")
-    print(f"  Real Human           {cm[0, 0]:2d}                  {cm[0, 1]:2d}")
-    print(f"  Real Synthetic       {cm[1, 0]:2d}                  {cm[1, 1]:2d}")
-
-    # Calibración de umbral
-    calibracion = calibrar_umbral(mejor_modelo, X_val, y_val)
-    umbral_optimo = calibracion["umbral"]
-    val_preds_opt = (val_probs_best >= umbral_optimo).astype(int)
-
-    print(f"\nCalibración de Umbral:")
-    print(f"  • Umbral óptimo encontrado: {umbral_optimo:.2f}")
-    print(f"  • Accuracy con umbral {umbral_optimo:.2f}: {accuracy_score(y_val, val_preds_opt):.4f}")
-    print(f"  • F1-Score con umbral {umbral_optimo:.2f}: {f1_score(y_val, val_preds_opt):.4f}")
-
-    cm_opt = confusion_matrix(y_val, val_preds_opt)
-    print("\nMatriz de Confusión (Umbral Óptimo):")
-    print(f"                Predicho Human    Predicho Synthetic")
-    print(f"  Real Human           {cm_opt[0, 0]:2d}                  {cm_opt[0, 1]:2d}")
-    print(f"  Real Synthetic       {cm_opt[1, 0]:2d}                  {cm_opt[1, 1]:2d}")
+    print(f"  Real Human           {cm_test[0, 0]:2d}                  {cm_test[0, 1]:2d}")
+    print(f"  Real Synthetic       {cm_test[1, 0]:2d}                  {cm_test[1, 1]:2d}")
 
     # Importancia de características
     importancias = {}
@@ -324,17 +380,25 @@ def main():
         "modelo_seleccionado": mejor_nombre,
         "features": features,
         "umbral_recomendado": umbral_optimo,
-        "metricas_val_umbral_0_5": {
-            "roc_auc": mejor_resultado["Val ROC-AUC"],
-            "accuracy": mejor_resultado["Val Acc"],
-            "f1_score": mejor_resultado["Val F1"],
-            "precision": mejor_resultado["Val Prec"],
-            "recall": mejor_resultado["Val Recall"],
+        "seleccion_modelo": {
+            "metodo": "cross_val_score (5-fold) sobre train_fit, sin usar val ni test_holdout",
+            "cv_train_auc": mejor_resultado["CV Train AUC"],
+            "cv_train_auc_std": mejor_resultado["CV Train AUC std"],
         },
-        "metricas_val_umbral_optimo": {
+        "metricas_calibracion_umbral": {
             "umbral": umbral_optimo,
-            "accuracy": round(float(accuracy_score(y_val, val_preds_opt)), 4),
-            "f1_score": round(float(f1_score(y_val, val_preds_opt)), 4),
+            "accuracy": calibracion["accuracy"],
+            "f1_score": calibracion["f1"],
+            "n_muestras": len(X_val),
+            "fuente": "val completo",
+        },
+        "metricas_test_holdout": {
+            "umbral": umbral_optimo,
+            "roc_auc": round(float(roc_auc_test), 4),
+            "accuracy": round(float(acc_test_opt), 4),
+            "f1_score": round(float(f1_test_opt), 4),
+            "n_muestras": len(X_test_holdout),
+            "fuente": "30 llamadas separadas de train, nunca usadas para entrenar ni calibrar",
         },
         "mapeo_clases": {
             "0": "human",
