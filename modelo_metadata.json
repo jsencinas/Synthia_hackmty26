@@ -1,0 +1,44 @@
+{
+  "modelo_seleccionado": "XGBoost",
+  "features": [
+    "numero_turnos_caller",
+    "duracion_promedio_caller",
+    "pausa_promedio_caller",
+    "desviacion_estandar_latencia",
+    "interrupciones_agente",
+    "duracion_total_interrupciones",
+    "duracion_promedio_interrupcion",
+    "tasa_interrupciones",
+    "duracion_interrupciones_por_turno",
+    "ratio_habla_pausa"
+  ],
+  "umbral_recomendado": 0.66,
+  "metricas_val_umbral_0_5": {
+    "roc_auc": 0.8267,
+    "accuracy": 0.6901,
+    "f1_score": 0.6944,
+    "precision": 0.6579,
+    "recall": 0.7353
+  },
+  "metricas_val_umbral_optimo": {
+    "umbral": 0.66,
+    "accuracy": 0.7746,
+    "f1_score": 0.75
+  },
+  "mapeo_clases": {
+    "0": "human",
+    "1": "synthetic"
+  },
+  "importancias": {
+    "numero_turnos_caller": 0.1748,
+    "duracion_promedio_caller": 0.0733,
+    "pausa_promedio_caller": 0.0597,
+    "desviacion_estandar_latencia": 0.0856,
+    "interrupciones_agente": 0.2197,
+    "duracion_total_interrupciones": 0.1217,
+    "duracion_promedio_interrupcion": 0.058,
+    "tasa_interrupciones": 0.0675,
+    "duracion_interrupciones_por_turno": 0.0751,
+    "ratio_habla_pausa": 0.0645
+  }
+}
