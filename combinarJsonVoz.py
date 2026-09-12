@@ -393,7 +393,7 @@ def calcular_accuracy(df_resultados):
 
     manifest = pd.read_csv(MANIFEST_PATH)
 
-    manifest_renombrado = manifest[["anon_id", "label"]].rename(
+    manifest_renombrado = manifest[["anon_id", "label", "split"]].rename(
         columns={"label": "label_real"}
     )
 
@@ -416,23 +416,38 @@ def calcular_accuracy(df_resultados):
         df_comparado["label"] == df_comparado["label_real"]
     )
 
+    if "split" not in df_comparado.columns or df_comparado["split"].isna().all():
+
+        print()
+        print("El manifest no tiene columna 'split' - no se puede calcular accuracy en val.")
+
+        return
+
+    df_val = df_comparado[df_comparado["split"] == "val"]
+
+    if len(df_val) == 0:
+
+        print()
+        print("No hay llamadas con split='val' en los resultados.")
+
+        return
+
     print()
     print("=" * 60)
-    print("ACCURACY DEL MODELO COMBINADO (WATERFALL)")
+    print("ACCURACY EN VALIDACIÓN (split = val)")
     print("=" * 60)
 
-    accuracy_global = df_comparado["correcto"].mean()
+    acc_val = df_val["correcto"].mean()
 
     print(
-        "Accuracy global:",
-        round(accuracy_global, 4),
-        f"({df_comparado['correcto'].sum()}/{len(df_comparado)})"
+        f"Accuracy val: {round(acc_val, 4)} "
+        f"({df_val['correcto'].sum()}/{len(df_val)} correctas)"
     )
 
     print()
-    print("Accuracy por nivel del waterfall:")
+    print("Accuracy por nivel (val):")
 
-    for nivel, grupo in df_comparado.groupby("nivel"):
+    for nivel, grupo in df_val.groupby("nivel"):
 
         acc_nivel = grupo["correcto"].mean()
 
