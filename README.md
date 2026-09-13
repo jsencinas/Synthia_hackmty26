@@ -56,8 +56,8 @@ El pipeline no requiere archivos de turnos precalculados en producción; los gen
 * **Dinámica de turnos:** Frecuencia de turnos por minuto, proporción de turnos ultracortos ($<1\text{ s}$) y largos ($>8\text{ s}$).
 * **Pausas y solapamientos:** Silencios internos para respirar/pensar y porcentaje de interrupciones sobre la voz del agente.
 
-> 📊 **[GRÁFICA SUGERIDA #1: Curvas de Densidad (KDE) de Latencia de Respuesta]**  
-> * **Ubicación recomendada:** Justo debajo de esta subsección.  
+> 
+![Grafica1](assets/01_kde_latencia_respuesta.png)
 > * **Tipo:** Gráfica de densidad superpuesta (KDE / Histograma suavizado).  
 > * **Eje X:** Latencia de respuesta en segundos ($0.0\text{ s} - 4.0\text{ s}$).  
 > * **Eje Y:** Densidad de probabilidad.  
@@ -73,15 +73,7 @@ El pipeline no requiere archivos de turnos precalculados en producción; los gen
 * **Corte telefónico (3.4 kHz a 4.0 kHz):** Los códecs de telefonía (G.711) suprimen frecuencias sobre 3.4 kHz; los sintetizadores modernos a menudo inyectan artefactos energéticos en esta banda.
 * **Variabilidad de timbre (MFCCs sin sesgo):** Usamos la **desviación estándar** de 13 coeficientes MFCC y no el promedio, evaluando la riqueza acústica sin memorizar locutores específicos.
 
-> 📊 **[GRÁFICA SUGERIDA #2: Boxplot Comparativo de Características Acústicas Clave]**  
-> * **Ubicación recomendada:** Justo debajo de esta subsección.  
-> * **Tipo:** 3 Subplots de diagramas de caja (Boxplots) lado a lado:  
->   1. `band_vhi_ratio_log` (Energía sobre 3.4 kHz)  
->   2. `jitter` (Inestabilidad glotal de tono)  
->   3. `crosstalk_db` (Fuga analógica entre canales)  
-> * **Eje X:** Clase (Humano vs. Sintético).  
-> * **Eje Y:** Magnitud normalizada de cada métrica.  
-> * **Qué demuestra visualmente:** Muestra la clara separación bimodal en la física del audio: las llamadas sintéticas tienen menor jitter natural, energía residual anómala en alta frecuencia y aislamiento artificial entre canales.
+![Grafica2](assets/02_boxplots_caracteristicas_acusticas.png)
 
 ---
 
@@ -100,14 +92,7 @@ Cada cabeza de decisión combina dos algoritmos complementarios mediante **votac
 * Suaviza probabilidades extremas para optimizar el *Brier Score*.
 * **Regla estricta:** Solo se permite enfriar/suavizar la certeza ($T \ge 1.0$), nunca inflarla artificialmente hacia los extremos.
 
-> 📊 **[GRÁFICA SUGERIDA #3: Dispersión 2D de Logits y Frontera del Stacker]**  
-> * **Ubicación recomendada:** Justo debajo de esta subsección.  
-> * **Tipo:** Scatter plot bidimensional.  
-> * **Eje X:** Logit de la Cabeza de Timing ($z_{\text{timing}}$).  
-> * **Eje Y:** Logit de la Cabeza de Voz ($z_{\text{voice}}$).  
-> * **Puntos:** 282 llamadas de entrenamiento (Círculos verdes = Humanos, Triángulos rojos = Sintéticos).  
-> * **Línea divisoria:** Frontera de decisión lineal ajustada por el Stacker ($P=0.5$).  
-> * **Qué demuestra visualmente:** Ilustra la ortogonalidad: las llamadas difíciles de clasificar por timing son resueltas por voz, y viceversa, dejando el centro despejado y validando el ensamble.
+![Grafica3](assets/03_logits_stacker.png)
 
 ---
 
@@ -138,12 +123,7 @@ El conjunto de validación (`val`) es **estrictamente disjunto por locutor** (*s
 * **Tasa de discrepancia entre cabezas:** $2.8\%$ (únicamente 2 de 71 llamadas requirieron arbitraje del stacker; ambas resueltas correctamente).
 * **Llamadas en zona de duda:** $0.0\%$ en validación (la señal acústica fue contundente).
 
-> 📊 **[GRÁFICA SUGERIDA #4: Matriz de Confusión y Curva ROC en Validación]**  
-> * **Ubicación recomendada:** Justo debajo de la tabla de resultados.  
-> * **Tipo:** Figura compuesta con 2 páneles:  
->   * **Panel Izquierdo:** Matriz de Confusión 2x2 en Heatmap (Predicho vs. Real para las 71 llamadas de `val`).  
->   * **Panel Derecho:** Curva ROC con área bajo la curva ($\text{AUC} = 1.000$).  
-> * **Qué demuestra visualmente:** Presenta de un solo vistazo el 100% de aciertos limpios (cero falsos positivos y cero falsos negativos) en datos fuera de muestra.
+![Grafica4](assets/04_matriz_confusion_y_roc.png)
 
 ---
 
