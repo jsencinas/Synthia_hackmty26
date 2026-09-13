@@ -1,17 +1,17 @@
-# Reporte Técnico: Arquitectura y Funcionamiento del Detector de IA
+# Reporte Técnico: Arquitectura y Funcionamiento de Synthia 
 
 ---
 
-## 1. El Problema y la Estrategia
+## 1. Problemática 
 
 En un centro de llamadas bancarias, los atacantes o usuarios pueden utilizar **asistentes de voz impulsados por Inteligencia Artificial** para hacerse pasar por clientes reales.
 
-### ¿Por qué los detectores comunes fallan?
-1. **Los sintetizadores de voz modernos suenan casi humanos:** Si solo intentas detectar si la voz "suena a robot", vas a fallar cuando usen modelos de última generación (como ElevenLabs, OpenAI u otros).
-2. **Las voces son diferentes a las del entrenamiento:** Si memorizas cómo suenan los estafadores de tu conjunto de prueba, cuando llegue una voz nueva con acento distinto, no funcionará.
+### Esto afecta la gestión de Grandes Empresas
+1. **Los sintetizadores de voz modernos suenan casi humanos:** Si solo se analiza la voz y se concluye que "suena a robot", el modelo fallara cuando modelos de última generación (como ElevenLabs, OpenAI u otros) se presenten.
+2. **Las voces son diferentes a las del entrenamiento:** Si solo se toman en cuenta cómo suenan los estafadores de un conjunto de prueba, cuando llegue una voz nueva con acento distinto, no funcionará.
 
-### Nuestra solución: El Enfoque en Tres Capas
-En lugar de buscar una sola "pista mágica", nuestro sistema analiza la llamada desde tres ángulos complementarios e independientes:
+### Nuestra solución: Un Enfoque de Tres Capas
+En lugar de basarse en solo una estrategia, nuestro sistema analiza la llamada desde tres ángulos complementarios e independientes:
 
 ```
                       Audio Estéreo (Caller vs. Agente)
@@ -24,28 +24,28 @@ En lugar de buscar una sola "pista mágica", nuestro sistema analiza la llamada 
              │                                               │
              └───────────────────────┬───────────────────────┘
                                      ▼
-                        [ Combinador (Stacker) ]
+                        [ Combinador  ]
                     Junta ambas opiniones de forma equilibrada
                                      │
                      ¿Hay duda o caso límite? (50/50)
                                 ├── No ──► Decisión Final Rápida (< 300 ms)
                                 └── Sí ──► [ Capa Lingüística (STT) ]
-                                           Analiza vacilaciones ("mande", "este")
+                                           Analiza muletillas ("mande", "este")
 ```
 
 ---
 
-## 2. Detección Automática de Habla (VAD Inteligente)
+## 2. Detección Automática de Habla
 
-El sistema **no necesita que nadie le diga cuándo habla cada persona**. Procesa el audio directamente y detecta los turnos de conversación de forma autónoma:
+El sistema **detecta los canales 0 y 1 del audio, sin necesidad de especificar**. Procesa los turnos de conversación de forma autónoma:
 
-1. **Averigua el nivel de ruido del fondo:** Cada llamada telefónica tiene un ruido de línea distinto (estática, ruido ambiental). El sistema calcula el ruido base de cada canal.
+1. **Toma en cuenta el nivel de ruido del fondo:** Cada llamada telefónica tiene un ruido de línea distinto (estática, ruido ambiental). El sistema calcula el ruido base de cada canal.
 2. **Detecta voz real:** Considera que alguien está hablando cuando el volumen supera por al menos **12 dB** el ruido de fondo de esa llamada en específico.
 3. **No corta palabras:** Agrega un pequeño margen de 100 milisegundos al final de cada intervención para no comerse las consonantes suaves finales (como "s", "d" o respiraciones).
 4. **Une pausas pequeñas:** Si alguien hace una micro-pausa de menos de 200 ms para tomar aire, la mantiene como parte del mismo turno.
 5. **Elimina ruidos falsos:** Ignora chasquidos o ruidos de línea que duren menos de 300 ms.
 
-> **Resultado:** Este detector coincide en más de un **95%** con las anotaciones manuales de referencia, funcionando en tiempo real en memoria.
+> **Resultado:** Este detector coincide en más de un **95%** con las anotaciones manuales de referencia, funcionando en tiempo real en memoria .
 
 ---
 
@@ -58,17 +58,17 @@ El modelo analiza 103 números divididos en dos grandes grupos:
 ### A. Características de Timing e Interacción (45 variables)
 Analizan **el ritmo de la conversación**:
 
-* **Latencia de respuesta (La pista más fuerte):**
+* **Latencia de respuesta (La variable más importante):**
   - ¿Cuánto tarda el cliente en contestar después de que el agente del banco termina de hablar?
-  - *La razón:* Un bot de IA tiene que escuchar el audio $\to$ convertirlo a texto $\to$ procesarlo en un modelo de lenguaje (LLM) $\to$ sintetizar el audio $\to$ reproducirlo. Ese proceso genera retrasos o tiempos de respuesta artificialmente rígidos. Un humano, en cambio, reacciona de forma intuitiva, a veces rápido y a veces dudando.
+  - Un bot de IA tiene que escuchar el audio, convertirlo a texto, procesarlo en un modelo de lenguaje (LLM), sintetizar el audio, reproducirlo. Ese proceso genera retrasos o tiempos de respuesta artificialmente rígidos. Un humano, en cambio, reacciona de forma intuitiva, a veces rápido y a veces dudando.
 * **Duración y frecuencia de turnos:**
   - ¿Habla a ráfagas cortas o da respuestas largas?
   - Fracción de turnos que duran menos de 1 segundo vs. más de 8 segundos.
 * **Pausas internas:**
   - ¿Cuánto tiempo se queda callado a mitad de su propia intervención para pensar o formular una frase?
-* **Interrupciones y solapamientos:**
+* **Interrupciones y empalmes:**
   - ¿Comienza a hablar mientras el agente bancario aún no ha terminado?
-  - Las IAs suelen respetar rígidamente los turnos o interrumpir en momentos poco naturales por fallas en su detector de fin de turno (*endpointing*).
+  - Las IAs suelen respetar rígidamente los turnos o interrumpir en momentos poco naturales por fallas en su detector de fin de turno.
 
 ---
 
@@ -87,16 +87,14 @@ Analizan **la física del sonido y el canal telefónico**:
   - La telefonía tradicional estándar (G.711) corta el audio abruptamente por encima de los 3,400 Hz. Muchos generadores de IA modernos generan audio de alta fidelidad que luego se comprime o que inyecta componentes de alta frecuencia en esa frontera.
 * **Variabilidad de timbre (MFCCs sin trampa):**
   - Calculamos 13 coeficientes del timbre de la voz, pero **solo usamos su variación (desviación estándar)**, descartando el promedio.
-  - *¿Por qué?* El promedio memoriza a la persona específica (ej. "voz de hombre grave"). La variación mide qué tan expresiva y rica es la voz, lo cual generaliza perfectamente a personas que el modelo nunca ha escuchado.
+  - El promedio memoriza a la persona específica (ej. "voz de hombre grave"). 
 
 ---
 
 ## 4. Arquitectura de Modelos: Dos Opiniones y un Árbitro
 
-No usamos una "caja negra" monolítica. Usamos un sistema modular y transparente:
-
 ```
-[ Variables de Timing ]  ──►  Cabeza de Timing (XGBoost + Regresión Logística)  ──► Opinión A
+[ Variables de Timing o .json ]  ──►  Cabeza de Timing (XGBoost + Regresión Logística)  ──► Opinión A
                                                                                           │
                                                                                           ▼
                                                                                    [ Árbitro Stacker ]
@@ -119,7 +117,7 @@ En lugar de promediar las opiniones a ciegas, un meta-modelo de **Regresión Log
 
 ## 5. Calibración de Confianza: Humildad Inteligente
 
-Un error común en IA es la **sobreconfianza**: modelos que dicen estar *"99.9% seguros"* cuando en realidad no conocen el caso. En las métricas de competencia (como el *Brier Score*), esto se penaliza severamente.
+Un error común en IA es la **sobreconfianza**: modelos que dicen estar *"99.9% seguros"* cuando en realidad no conocen el caso. 
 
 Para solucionarlo aplicamos **Temperature Scaling**:
 - Es una perilla matemática que "enfría" las probabilidades extremas hacia números más realistas y honestos.
@@ -131,7 +129,7 @@ Para solucionarlo aplicamos **Temperature Scaling**:
 
 Para más del 95% de las llamadas, la combinación de timing y voz es contundente y decide en menos de 250 milisegundos.
 
-Sin embargo, si una llamada cae en la **zona de incertidumbre** (el modelo está cerca del 50/50) y el servidor aún tiene tiempo disponible en el reloj, el sistema activa una tercera opinión:
+Sin embargo, si una llamada cae en la **zona de incertidumbre** (el modelo está cerca del 50/50) y el servidor aún tiene tiempo disponible en el reloj, el sistema activa una tercera opción:
 
 1. Transcribe el audio con **ElevenLabs Scribe v2** multicanal.
 2. Analiza el texto en busca de patrones humanos del español de México:
@@ -158,8 +156,8 @@ El sistema expone una API lista para producción bancaria:
 
 Muchos modelos en competencias obtienen puntuaciones infladas porque prueban con las mismas voces con las que entrenaron. Nuestro pipeline previene esto rigurosamente:
 
-1. **Separación por personas (Speaker-Disjoint):** Ninguna persona ni voz sintética del conjunto de entrenamiento aparece en el conjunto de validación.
-2. **Sin fuga de información (No Data Leakage):** El conjunto de validación está completamente congelado. No se usa para calibrar umbrales, ni para ajustar hiperparámetros.
+1. **Separación por personas:** Ninguna persona ni voz sintética del conjunto de entrenamiento aparece en el conjunto de validación.
+2. **Sin fuga de información:** El conjunto de validación está completamente congelado. No se usa para calibrar umbrales, ni para ajustar hiperparámetros.
 3. **Métricas en las 71 llamadas de validación:**
    - **Cabeza de Timing:** 94.5% de Balanced Accuracy (AUC 0.990)
    - **Cabeza de Voz:** 100% de Balanced Accuracy (AUC 1.000)
