@@ -1,8 +1,8 @@
 """POST /detect: human-vs-synthetic caller detector.
 
 Design goals for judging: always answer HTTP 200 with a boolean when the body
-is a request at all, warm every model and JIT path at start-up so the first
-call is as fast as the rest, and never exceed the per-call time budget.
+is a request at all, and warm every model and JIT path at start-up so the first
+call is as fast as the rest.
 """
 
 from __future__ import annotations
@@ -16,10 +16,11 @@ import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import numpy as np
-from fastapi import FastAPI
-from pydantic import BaseModel, ConfigDict
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -68,26 +69,15 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="HackMTY caller detector", lifespan=lifespan)
 
 
-class DetectRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    call_id: str | None = None
-    audio: str | None = None
-    wav_base64: str | None = None
-    audio_base64: str | None = None
-    sample_rate: int | None = None
-    channels: int | None = None
-
-
-def _decode_wav(request: DetectRequest) -> bytes | None:
-    payload = request.audio_base64 or request.wav_base64 or request.audio
-    if not payload:
+def _decode_wav(request: dict[str, Any]) -> bytes | None:
+    encoded = request.get("audio_base64") or request.get("wav_base64") or request.get("audio")
+    if not encoded:
         return None
     try:
-        return base64.b64decode(payload, validate=True)
+        return base64.b64decode(encoded, validate=True)
     except Exception:
         try:
-            return base64.b64decode(payload)
+            return base64.b64decode(encoded)
         except Exception:
             return None
 
@@ -101,10 +91,9 @@ def health() -> dict:
     return {"ready": STATE["ready"], "error": STATE["artifact_error"]}
 
 
-@app.post("/detect")
-def detect(request: DetectRequest) -> dict:
+def _detect_sync(request: dict[str, Any]) -> dict:
     started = time.perf_counter()
-    call_id = request.call_id or "-"
+    call_id = str(request.get("call_id") or "-")
 
     wav_bytes = _decode_wav(request)
     if not wav_bytes or len(wav_bytes) < 44:
@@ -153,3 +142,38 @@ def detect(request: DetectRequest) -> dict:
         "is_synthetic": bool(result["is_synthetic"]),
         "confidence": float(min(max(result["confidence"], 0.0), 1.0)),
     }
+
+
+@app.post("/detect")
+async def detect(request: Request) -> dict:
+    """Parse leniently and always return the judge contract."""
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        logger.warning("invalid JSON body (%s); answering fallback", exc)
+        return dict(FALLBACK)
+    if not isinstance(payload, dict):
+        logger.warning("JSON body is not an object; answering fallback")
+        return dict(FALLBACK)
+
+    try:
+        return _detect_sync(payload)
+    except Exception as exc:
+        logger.exception("uncaught /detect error; answering fallback: %s", exc)
+        return dict(FALLBACK)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+    """Protect the judge route from framework-level non-200 responses."""
+    if request.url.path == "/detect":
+        logger.exception("framework-level /detect error; answering fallback: %s", exc)
+        return JSONResponse(status_code=200, content=dict(FALLBACK))
+    logger.exception("unhandled API error: %s", exc)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("api.app:app", host="0.0.0.0", port=8000)

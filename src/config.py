@@ -19,8 +19,6 @@ VOICE_MODEL_PATH = ARTIFACT_DIR / "voice_model.joblib"
 STACKER_PATH = ARTIFACT_DIR / "stacker.joblib"
 CALIBRATION_PATH = ARTIFACT_DIR / "calibration.json"
 
-# Judge gives 30 s per call. Total wall-clock budget we allow ourselves per
-# request, and the slice of it the optional STT stage may consume.
 REQUEST_BUDGET_S = float(os.getenv("REQUEST_BUDGET_S", "20"))
 STT_TIMEOUT_S = float(os.getenv("STT_TIMEOUT_S", "12"))
 # STT is consulted only when the fused acoustic decision is this uncertain

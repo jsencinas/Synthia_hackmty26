@@ -49,13 +49,13 @@ El sistema **no necesita que nadie le diga cuándo habla cada persona**. Procesa
 
 ---
 
-## 3. Las Pistas que Busca el Modelo (109 Características)
+## 3. Las Pistas que Busca el Modelo (103 Características)
 
-El modelo analiza 109 números divididos en dos grandes grupos:
+El modelo analiza 103 números divididos en dos grandes grupos:
 
 ---
 
-### A. Características de Timing e Interacción (51 variables)
+### A. Características de Timing e Interacción (45 variables)
 Analizan **el ritmo de la conversación**:
 
 * **Latencia de respuesta (La pista más fuerte):**

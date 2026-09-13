@@ -17,7 +17,7 @@ El audio es estéreo y contiene dos canales:
 * **Canal 0:** caller, que es la persona que queremos clasificar.
 * **Canal 1:** agente.
 
-El sistema primero detecta **cuándo habla cada lado** usando los archivos de ```\turns```. Para hacerlo calcula el nivel de ruido de cada canal y detecta como voz las partes que están aproximadamente 12 dB por encima de ese nivel. También une pausas muy pequeñas y elimina fragmentos demasiado cortos.
+El sistema primero detecta **cuándo habla cada lado directamente desde el WAV**. Para hacerlo calcula el nivel de ruido de cada canal y detecta como voz las partes que están aproximadamente 12 dB por encima de ese nivel. También une pausas muy pequeñas y elimina fragmentos demasiado cortos. Los archivos de `turns/` solo se usan como referencia para desarrollar y comprobar este VAD; no son necesarios para clasificar llamadas nuevas.
 
 Esto produce los turnos de la conversación, por ejemplo:
 
@@ -33,7 +33,7 @@ El audio se procesa una sola vez y de ahí se obtienen todas las característica
 
 ## Características del modelo
 
-El modelo utiliza **51 características de timing y 58 características de voz y canal**.
+El modelo utiliza **45 características de timing y 58 características de voz y canal** (103 en total).
 
 ### Timing
 
@@ -209,7 +209,18 @@ POST /detect
 GET  /health
 ```
 
-`POST /detect` recibe el audio en Base64 y devuelve:
+`POST /detect` recibe el contrato oficial del juez:
+
+```json
+{
+  "call_id": "call_0181ce113ebe",
+  "audio_base64": "<WAV completo codificado en Base64>",
+  "sample_rate": 8000,
+  "channels": 2
+}
+```
+
+El endpoint responde con HTTP 200 y:
 
 ```json
 {
@@ -221,6 +232,10 @@ GET  /health
 `is_synthetic` indica si el modelo considera que el caller es una IA.
 
 `confidence` representa la confianza de la decisión.
+
+El juez permite un máximo de 30 segundos por llamada y aplica ese límite. Si el
+JSON es inválido o ocurre un error, `/detect` responde HTTP 200 con un
+booleano `is_synthetic` para no fallar por protocolo.
 
 La API también:
 
@@ -243,12 +258,21 @@ python -m src.train
 
 python -m src.evaluate
 
-uvicorn api.app:app
+uvicorn api.app:app --host 0.0.0.0 --port 8000
 ```
 
 `train` entrena los modelos utilizando `train`.
 
 `evaluate` mide el rendimiento utilizando `val`.
+
+Para probar el mismo contrato que utiliza el juez:
+
+```bash
+python scripts/check_endpoint.py --url http://localhost:8000/detect --split val --n 20
+```
+
+Este cliente valida el código HTTP y la forma de la respuesta, y reporta
+balanced accuracy y latencia. Solo utiliza la biblioteca estándar de Python.
 
 ---
 
@@ -265,6 +289,7 @@ uvicorn api.app:app
 | `src/train.py`    | Entrenamiento                                  |
 | `src/evaluate.py` | Evaluación                                     |
 | `api/app.py`      | API                                            |
+| `scripts/check_endpoint.py` | Cliente de prueba del contrato del juez |
 | `models/`         | Modelos entrenados                             |
 | `audio/`          | Llamadas grabadas                              |
 | `turns/`          | Turnos de referencia                           |
