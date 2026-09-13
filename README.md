@@ -20,6 +20,38 @@ En las **71 llamadas del conjunto de validación**, el sistema obtuvo:
 
 Este resultado es solo de el conjunto de validación disponible. **No significa que el modelo es perfecto en cualquier llamada.**
 
+## Comandos
+
+Python 3.11+. El audio debe estar en `audio/`.
+
+```bash
+python -m pip install -r requirements.txt
+python -m src.train
+python -m src.evaluate
+uvicorn api.app:app --host 0.0.0.0 --port 8000
+```
+
+Para la tercera opinión (transcripción con ElevenLabs):
+
+```bash
+# Windows PowerShell
+$env:ELEVENLABS_API_KEY="tu_clave"
+
+# Linux / macOS
+export ELEVENLABS_API_KEY="tu_clave"
+```
+
+Probar el endpoint con llamadas del dataset:
+
+```bash
+python scripts/check_endpoint.py --url http://127.0.0.1:8000/detect --split val
+```
+
+`POST /detect` recibe el WAV en base64 (`audio_base64`) y responde:
+
+```json
+{"is_synthetic": true, "confidence": 0.87}
+```
 
 ## ¿Cómo funciona?
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "trained_at": "2026-09-13T05:37:23.113913+00:00",
+  "trained_at": "2026-09-13T17:28:13.464565+00:00",
   "trained_on": "train_only",
   "training_rows": 282,
   "class_counts": {
