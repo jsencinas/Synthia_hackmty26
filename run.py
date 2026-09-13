@@ -8,7 +8,7 @@ payload = {
     "channels": 2,
 }
 req = urllib.request.Request(
-    "http://provisions-competition-bones-clock.trycloudflare.com/detect",
+    "https://governmental-hook-fill-instances.trycloudflare.com/detect",
     data=json.dumps(payload).encode(),
     headers={"Content-Type": "application/json"},
 )

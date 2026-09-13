@@ -3,6 +3,10 @@
 > **Detección de llamadas humanas vs. IA en telefonía**
 > Proyecto desarrollado para **HackMTY 2026 - Reto Altur**.
 
+### API TEST LINK : https://governmental-hook-fill-instances.trycloudflare.com/detect
+
+---
+
 Memory Leak AI Detector recibe una llamada telefónica grabada y determina si la persona que llama es **humana o una IA**.
 
 En lugar de intentar identificar únicamente si una voz “suena a IA”, el sistema analiza cómo se desarrolla la conversación, cómo se comporta la voz y cómo llega el audio por el teléfono.
