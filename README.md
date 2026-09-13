@@ -1,11 +1,11 @@
 # Synthia AI Detector
 
-> **Detección de llamadas humanas vs. sintéticas en telefonía bancaria**
-> Proyecto desarrollado para **HackMTY 2026 — Reto Altur**.
+> **Detección de llamadas humanas vs. IA en telefonía**
+> Proyecto desarrollado para **HackMTY 2026 - Reto Altur**.
 
 Memory Leak AI Detector recibe una llamada telefónica grabada y determina si la persona que llama es **humana o una IA**.
 
-En lugar de intentar identificar únicamente si una voz “suena a IA”, el sistema analiza **cómo se desarrolla la conversación, cómo se comporta la voz y cómo llega el audio por el canal telefónico**. Cuando estas señales no son suficientes, utiliza una tercera opinión mediante Speech-to-Text.
+En lugar de intentar identificar únicamente si una voz “suena a IA”, el sistema analiza cómo se desarrolla la conversación, cómo se comporta la voz y cómo llega el audio por el teléfono.
 
 En las **71 llamadas del conjunto de validación**, el sistema obtuvo:
 
@@ -14,10 +14,7 @@ En las **71 llamadas del conjunto de validación**, el sistema obtuvo:
 - **0.0092 Brier Score**
 - **71/71 llamadas clasificadas correctamente**
 
-Este resultado corresponde únicamente al conjunto de validación disponible. **No significa que el modelo sea perfecto en cualquier llamada o dataset futuro.**
-
----
-
+Este resultado es solo de el conjunto de validación disponible. **No significa que el modelo es perfecto en cualquier llamada.**
 
 
 ## ¿Cómo funciona?
@@ -48,13 +45,11 @@ flowchart TD
     Blend --> Final
 ```
 
-
-
-La idea principal es utilizar varias señales independientes en lugar de depender de una sola característica.
+La idea es utilizar varias señales independientes en lugar de depender de una sola.
 
 # 1. El audio y la detección de turnos
 
-Las llamadas son audio estéreo y normalmente contienen dos canales:
+Las llamadas son audio estéreo y contienen dos canales:
 
 ```text
 Canal 0 → Caller
@@ -65,19 +60,18 @@ Durante el desarrollo utilizamos los archivos de `turns/` como referencia para c
 
 En producción, el sistema **no necesita turnos precalculados**. Los obtiene directamente del WAV utilizando un VAD adaptativo.
 
-### VAD adaptativo
+### VAD adaptativo (Voice Activity Detection)
 
 Para cada canal:
 
 1. El audio se divide en ventanas de aproximadamente **20 ms**.
-2. Se calcula el nivel RMS.
-3. Se estima el piso de ruido mediante el **percentil 20**.
-4. Se considera voz una señal aproximadamente **12 dB por encima del ruido**.
-5. Se eliminan fragmentos demasiado cortos.
-6. Se extienden los segmentos aproximadamente 100 ms para evitar cortar sonidos suaves.
-7. Se unen pausas pequeñas de menos de aproximadamente 200 ms.
+2. Se estima el piso de ruido mediante el **percentil 20**.
+3. Se considera voz una señal aproximadamente **12 dB por encima del ruido**.
+4. Se eliminan fragmentos demasiado cortos.
+5. Se extienden los segmentos aproximadamente 100 ms para evitar cortar sonidos suaves.
+6. Se unen pausas pequeñas de menos de aproximadamente 200 ms.
 
-Esto genera los turnos necesarios para analizar la conversación:
+Esto genera los turnos para analizar la conversación:
 
 ```text
 Caller: 12.4s → 15.1s
@@ -116,11 +110,11 @@ Estas características se dividen en dos grupos independientes.
 
 
 
-## 2.1 Timing e interacción
+## 2.1 Timing e interacción (Sección usando JSON)
 
-Las características de timing intentan describir **cómo ocurre la conversación**, no cómo suena una persona.
+Las características de timing intentan describir **cómo ocurre la conversación**.
 
-Entre ellas se encuentran:
+Estas son las características usadas:
 
 - Duración de los turnos.
 - Número de turnos.
@@ -135,8 +129,6 @@ Entre ellas se encuentran:
 - Distribución temporal de la conversación.
 - Porcentaje de tiempo hablado por cada lado.
 
-
-
 ### La latencia de respuesta
 
 Una de las señales más importantes es:
@@ -146,30 +138,28 @@ Una de las señales más importantes es:
 Una IA de voz normalmente necesita pasar por varias etapas:
 
 ```text
-Audio
- ↓
-Speech-to-Text
- ↓
-Modelo de lenguaje
- ↓
-Text-to-Speech
- ↓
-Respuesta
+    Audio
+       ↓
+ Speech-to-Text
+       ↓
+ Modelo de lenguaje
+       ↓
+ Text-to-Speech
+       ↓
+ Respuesta
 ```
 
-Cada una puede introducir una pequeña cantidad de latencia.
-
-En los datos disponibles, las llamadas sintéticas presentan patrones temporales diferentes a los humanos.
+Cada una puede introducir una pequeña cantidad de latencia. En los datos, las llamadas sintéticas presentan patrones diferentes a los humanos. Con eso ya calculamos si es humano o no.
 
 ![Latencia de respuesta](assets/01_kde_latencia_respuesta.png)
 
-*La distribución muestra cómo los tiempos de respuesta de humanos y sistemas sintéticos presentan comportamientos diferentes. Los humanos tienden a concentrarse en respuestas más rápidas y variables, mientras que las llamadas sintéticas presentan una distribución desplazada.*
+*Los humanos se concentran en respuestas más rápidas y variables, mientras que las llamadas sintéticas presentan una distribución desplazada.*
 
 ---
 
 
 
-## 2.2 Voz, acústica y canal
+## 2.2 Voz, acústica y canal (Sección de Audios)
 
 La segunda cabeza analiza **cómo llega y cambia físicamente el audio**.
 
@@ -188,24 +178,19 @@ Se utilizan características relacionadas con:
 - Energía por frecuencia.
 - Centroide espectral.
 - Ancho de banda.
-- Rolloff.
-- Planitud espectral.
 - Cruces por cero.
-- Flujo espectral.
 - Variación de MFCC.
 - Ritmo de habla.
 
-
-
 ### Características del canal
 
-Una señal interesante es el **cross-talk**.
+Una señal que usamos mucho es el **cross-talk**.
 
-En una llamada telefónica física, parte de la señal del agente puede filtrarse ligeramente hacia el canal del caller. Cuando una llamada es generada completamente por software, este comportamiento puede ser diferente.
+En una llamada telefónica física, parte de la señal del agente puede filtrarse hacia el canal del caller. Cuando una llamada es generada completamente por software, este comportamiento puede ser diferente.
 
 También analizamos los **silencios digitales exactos**, donde existen segmentos con valores numéricos perfectamente iguales a cero.
 
-Estas señales no se utilizan como reglas individuales. Se combinan con el resto de características para que el modelo no dependa de una sola pista.
+Estas señales no se utilizan como reglas individuales, se combinan con el resto de características.
 
 ### Frecuencias altas
 
@@ -213,9 +198,7 @@ También analizamos la energía alrededor de la zona de **3.4 kHz** y otras prop
 
 La telefonía tradicional limita gran parte de la información de frecuencias altas, mientras que determinados sistemas sintéticos pueden generar patrones distintos en estas regiones.
 
-De nuevo, esto es solamente una característica entre muchas otras.
-
-### MFCC
+### MFCC (Mel-frequency cepstral coefficients)
 
 Los MFCC se utilizan principalmente para analizar **cómo cambia el timbre**, no para memorizar el timbre promedio de un individuo.
 
@@ -233,27 +216,13 @@ En lugar de depender únicamente del valor medio, se analiza su variabilidad. Es
 
 El sistema genera dos opiniones independientes:
 
-```text
-             ┌─────────────────────┐
-             │ Timing features     │
-             └──────────┬──────────┘
-                        ↓
-                 Timing Model
-                        │
-                        │ P_timing
-                        │
-                        ├─────────────┐
-                                      ↓
-                                Stacker
-                                      ↑
-                        ┌─────────────┘
-                        │ P_voice
-                 Voice Model
-                        ↑
-             ┌──────────┴──────────┐
-             │ Voice / Channel     │
-             │ features            │
-             └─────────────────────┘
+```mermaid
+flowchart LR
+    A["Timing Features<br/>51 features"] --> B["Timing Model<br/>XGBoost + Logistic Regression"]
+    C["Voice & Channel Features<br/>58 features"] --> D["Voice Model<br/>XGBoost + Logistic Regression"]
+    B -->|"P_timing"| E["Logistic Stacker"]
+    D -->|"P_voice"| E
+    E --> F["Combined Prediction"]
 ```
 
 Cada cabeza combina dos modelos complementarios:
@@ -266,13 +235,10 @@ Utilizamos un XGBoost pequeño y regularizado para detectar:
 - Umbrales.
 - Interacciones entre características.
 
-Se mantienen árboles pequeños y regularización para reducir el sobreajuste.
-
 ### Regresión logística
 
 La regresión logística proporciona una decisión más suave y estable.
 
-Esto es útil para evitar depender completamente de fronteras complejas y para generalizar mejor ante valores que no aparecieron exactamente durante el entrenamiento.
 
 ### Soft voting
 
@@ -289,24 +255,16 @@ Después de obtener las predicciones independientes, un tercer modelo las combin
 El **Stacker Logístico** recibe las probabilidades de:
 
 ```text
-Timing Head
-     +
-Voice Head
-     ↓
-Stacker
+            Timing
+              +
+            Voice
+              ↓
+            Stacker
 ```
-
-Antes de combinarlas se proyectan a espacio logit:
-
-$$
-z = \ln\left(\frac{p}{1-p}\right)
-$$
 
 El stacker se entrena utilizando **predicciones Out-of-Fold de 5 folds**.
 
-Esto es importante porque evita entrenar el combinador utilizando predicciones que fueron producidas sobre los mismos ejemplos que los modelos utilizaron para aprender.
-
-En otras palabras, el sistema intenta evitar que el stacker aprenda una confianza artificialmente optimista.
+Esto es importante porque esto hace que no entrene al combinador utilizando predicciones que los mismos modelos utilizaron para aprender. En general, el sistema intenta evitar que el stacker aprenda siendo artificialmente optimista.
 
 ![Stacker](assets/03_logits_stacker.png)
 
@@ -328,19 +286,13 @@ La calibración permite que una predicción como:
 
 no sea interpretada automáticamente como una certeza absoluta.
 
-La temperatura únicamente puede hacer la confianza **más conservadora**:
-
 $$
 T \geq 1
 $$
 
-Esto evita que el sistema incremente artificialmente probabilidades extremas.
+Esto evita que el sistema incremente artificialmente probabilidades.
 
-Además de mejorar la interpretación de la confianza, esta etapa ayuda a obtener un mejor **Brier Score**.
-
----
-
-
+Además de mejorar la interpretación de la confianza, esto ayuda a obtener un mejor **Brier Score**.
 
 # 6. Tercera opinión: Speech-to-Text
 
@@ -350,32 +302,19 @@ Por eso, la transcripción **no se utiliza para todas las llamadas**.
 
 Primero se obtiene una decisión acústica.
 
-Si el resultado cae dentro de una zona de incertidumbre:
+Si el resultado es incierto y todavía existe suficiente tiempo disponible, el sistema puede pedir una tercera opinión.
 
-$$
-|p-0.5| \leq 0.12
-$$
+```mermaid
+flowchart TD
+    A["Audio"] --> B["Timing + Voice Models"]
+    B --> C["Combined Result"]
+    C --> D{"Is the result uncertain?"}
 
-y todavía existe suficiente tiempo disponible, el sistema puede pedir una tercera opinión.
-
-```text
-Audio
- ↓
-Timing + Voice
- ↓
-Resultado
- ↓
-¿Incierto?
- ├── No → Final
- └── Sí
-       ↓
- ElevenLabs Scribe v2
-       ↓
- Análisis lingüístico
-       ↓
- Ajuste de probabilidad
-       ↓
- Final
+    D -->|"No"| E["Final Decision"]
+    D -->|"Yes"| F["ElevenLabs Scribe v2"]
+    F --> G["Linguistic Analysis"]
+    G --> H["Probability Adjustment"]
+    H --> E
 ```
 
 La transcripción se realiza utilizando **ElevenLabs Scribe v2**.
@@ -406,40 +345,15 @@ La información lingüística **no reemplaza la predicción acústica**.
 
 Su contribución tiene un peso menor:
 
-# $$
-\text{logit final}
-
-\text{logit acústico}
-+
-0.5 \times \text{logit STT}
-$$
-
 Además, la transcripción tiene un presupuesto máximo de aproximadamente **12 segundos** para mantener controlada la latencia total.
 
 ---
-
-
 
 # 7. ¿Por qué funciona?
 
 La idea principal del proyecto es que una llamada sintética puede diferenciarse de una humana en más de una dimensión.
 
-Una IA de voz normalmente tiene que:
-
-```text
-Escuchar
-   ↓
-Transcribir
-   ↓
-Generar respuesta
-   ↓
-Sintetizar voz
-   ↓
-Hablar
-```
-
 Ese proceso puede producir diferencias en:
-
 - Tiempo de respuesta.
 - Regularidad de los turnos.
 - Variación del pitch.
@@ -452,13 +366,11 @@ Ese proceso puede producir diferencias en:
 
 El modelo intenta combinar todas estas señales.
 
-En pruebas internas, incluso eliminando dos de las señales más fuertes —**latencia de respuesta y bandas espectrales**— el modelo mantiene aproximadamente **97% de rendimiento en validación cruzada sobre** `train`.
+En pruebas internas, incluso eliminando dos de las señales más fuertes —**latencia de respuesta y bandas espectrales**— el modelo mantiene aproximadamente **97% de rendimiento en validación en** `train`.
 
-Esto sugiere que el modelo no depende completamente de una sola regla.
+Esto dice que el modelo no depende completamente de una sola regla.
 
 ---
-
-
 
 # 8. Datos y validación
 
@@ -474,21 +386,9 @@ Actualmente el conjunto de entrenamiento contiene aproximadamente:
 
 El conjunto `val` se mantiene separado para evaluar el sistema.
 
-Además, los speakers de `train` y `val` son diferentes:
+Esto reduce el riesgo de que el modelo simplemente memorice las voces.
 
-```text
-TRAIN
-  ↓
-Aprendizaje
-
-VAL
-  ↓
-Evaluación
-```
-
-Esto reduce el riesgo de que el modelo simplemente memorice determinadas voces.
-
-Los archivos dentro de `turns/` se utilizan como referencia para desarrollar y comprobar el detector de voz, pero **no son necesarios para clasificar una llamada nueva en producción**.
+Los archivos dentro de `turns/` se utilizan como referencia para entrenar el modelo, pero **no son necesarios para clasificar una llamada nueva en producción**.
 
 ---
 
@@ -517,10 +417,8 @@ Esto representa:
 
 El stacker tuvo que resolver discrepancias entre las dos cabezas en aproximadamente **2.8% de las llamadas**, equivalentes a 2 de 71.
 
-En este conjunto de validación, ninguna llamada terminó necesitando el desempate lingüístico porque las señales acústicas fueron suficientemente claras.
-
-**Importante:** 100% en estas 71 llamadas no significa 100% de precisión garantizada para llamadas nuevas.
+En este conjunto de validación, ninguna llamada terminó necesitando el desempate lingüístico (usar ElevenLabs) porque las señales fueron suficientemente claras.
 
 ![Matriz de confusión y ROC](assets/04_matriz_confusion_y_roc.png)
 
-*Resultados del modelo sobre el conjunt*
+*Resultados del modelo*
