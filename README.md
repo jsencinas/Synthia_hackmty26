@@ -27,13 +27,49 @@ Both sides are given to you for a reason: channel 1 tells you what the caller wa
 
 ## Evaluation
 
-Your system exposes `POST /detect`. It receives a stereo WAV clip (8 kHz, base64-encoded, channel 0 = caller, channel 1 = agent) and returns:
+Your system exposes `POST /detect`. The judge sends one call per request, as JSON:
+
+```json
+{
+  "call_id": "call_0181ce113ebe",
+  "audio_base64": "<base64 of the complete WAV file, same format as audio/*.wav>",
+  "sample_rate": 8000,
+  "channels": 2
+}
+```
+
+Channel 0 is the caller, channel 1 is the agent. Decode `audio_base64` and you have the exact bytes of a file from `audio/`.
+
+Respond with HTTP 200 and:
 
 ```json
 {"is_synthetic": true, "confidence": 0.87}
 ```
 
-`is_synthetic` is required. `confidence` is optional and used to break ties and reward calibration.
+`is_synthetic` (boolean) is required. `confidence` (0 to 1, your certainty in the `is_synthetic` value you returned) is optional; when every answer carries one we also report AUC and calibration, and it breaks ties.
+
+Rules the judge applies:
+
+- 30 seconds per call. A timeout, a non-200 status, or a body without a boolean `is_synthetic` counts as a wrong answer.
+- Calls are 1 to 4 minutes long; the JSON body is up to about 5 MB.
+- The hidden set has callers and voices that are in neither `train` nor `val`. Main metric is balanced accuracy.
+- Your endpoint has to stay reachable during your judging slot; we call it live from your station.
+
+### Test your endpoint before judging
+
+`scripts/check_endpoint.py` is the judge's client. Point it at your URL and it sends dataset calls, validates the response shape, and prints accuracy and latency:
+
+```bash
+python scripts/check_endpoint.py --url http://localhost:8000/detect --split val --n 20
+```
+
+`scripts/example_server.py` is a minimal server that implements the contract with a placeholder decision, so you can see the plumbing work end to end:
+
+```bash
+python scripts/example_server.py --port 8000
+```
+
+Both scripts need only the Python standard library and the unzipped `audio/` folder.
 
 ## Terms
 

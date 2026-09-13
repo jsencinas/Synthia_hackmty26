@@ -1,0 +1,12 @@
+pandas
+numpy
+scikit-learn
+xgboost
+joblib
+librosa
+soundfile
+fastapi
+uvicorn
+pydantic
+python-dotenv
+elevenlabs
