@@ -6,7 +6,7 @@
 
 ---
 
-## 📌 1. El Problema y la Estrategia
+## 1. El Problema y la Estrategia
 
 En un centro de llamadas bancarias, los atacantes o usuarios pueden utilizar **asistentes de voz impulsados por Inteligencia Artificial** para hacerse pasar por clientes reales.
 
@@ -39,7 +39,7 @@ En lugar de buscar una sola "pista mágica", nuestro sistema analiza la llamada 
 
 ---
 
-## 🎙️ 2. Detección Automática de Habla (VAD Inteligente)
+## 2. Detección Automática de Habla (VAD Inteligente)
 
 El sistema **no necesita que nadie le diga cuándo habla cada persona**. Procesa el audio directamente y detecta los turnos de conversación de forma autónoma:
 
@@ -53,7 +53,7 @@ El sistema **no necesita que nadie le diga cuándo habla cada persona**. Procesa
 
 ---
 
-## 🧩 3. Las Pistas que Busca el Modelo (109 Características)
+## 3. Las Pistas que Busca el Modelo (109 Características)
 
 El modelo analiza 109 números divididos en dos grandes grupos:
 
@@ -95,7 +95,7 @@ Analizan **la física del sonido y el canal telefónico**:
 
 ---
 
-## 🧠 4. Arquitectura de Modelos: Dos Opiniones y un Árbitro
+## 4. Arquitectura de Modelos: Dos Opiniones y un Árbitro
 
 No usamos una "caja negra" monolítica. Usamos un sistema modular y transparente:
 
@@ -121,7 +121,7 @@ En lugar de promediar las opiniones a ciegas, un meta-modelo de **Regresión Log
 
 ---
 
-## 🌡️ 5. Calibración de Confianza: Humildad Inteligente
+## 5. Calibración de Confianza: Humildad Inteligente
 
 Un error común en IA es la **sobreconfianza**: modelos que dicen estar *"99.9% seguros"* cuando en realidad no conocen el caso. En las métricas de competencia (como el *Brier Score*), esto se penaliza severamente.
 
@@ -131,7 +131,7 @@ Para solucionarlo aplicamos **Temperature Scaling**:
 
 ---
 
-## 🗣️ 6. Desempate Lingüístico: Speech-to-Text (ElevenLabs Scribe v2)
+## 6. Desempate Lingüístico: Speech-to-Text (ElevenLabs Scribe v2)
 
 Para más del 95% de las llamadas, la combinación de timing y voz es contundente y decide en menos de 250 milisegundos.
 
@@ -145,7 +145,7 @@ Sin embargo, si una llamada cae en la **zona de incertidumbre** (el modelo está
 
 ---
 
-## ⚡ 7. Ingeniería de Producción y Latencia (`api/app.py`)
+## 7. Ingeniería de Producción y Latencia (`api/app.py`)
 
 El sistema expone una API lista para producción bancaria:
 
@@ -158,7 +158,7 @@ El sistema expone una API lista para producción bancaria:
 
 ---
 
-## 🛡️ 8. ¿Por qué estas métricas son de verdad y no "trampa"?
+## 8. ¿Por qué estas métricas son de verdad y no "trampa"?
 
 Muchos modelos en competencias obtienen puntuaciones infladas porque prueban con las mismas voces con las que entrenaron. Nuestro pipeline previene esto rigurosamente:
 
@@ -171,7 +171,7 @@ Muchos modelos en competencias obtienen puntuaciones infladas porque prueban con
 
 ---
 
-## 🚀 9. Guía Rápida para Ejecutar
+## 9. Guía Rápida para Ejecutar
 
 ```bash
 # 1. Instalar dependencias
