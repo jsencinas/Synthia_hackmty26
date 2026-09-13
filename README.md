@@ -127,7 +127,7 @@ El conjunto de validación (`val`) es **estrictamente disjunto por locutor** (*s
 
 ---
 
-## ⚡ 7. API de Producción (`POST /detect`)
+## 7. API de Producción (`POST /detect`)
 
 Servidor de inferencia construido sobre FastAPI + Uvicorn:
 
