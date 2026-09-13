@@ -1,25 +1,83 @@
-# Memory Leak AI Detector
+# Synthia AI Detector
 
-Este proyecto recibe una llamada grabada y determina si quien llama es una **persona o una IA**.
+> **Detección de llamadas humanas vs. sintéticas en telefonía bancaria**
+> Proyecto desarrollado para **HackMTY 2026 — Reto Altur**.
 
-El modelo analiza principalmente **cómo se desarrolla la conversación y cómo llega el audio**, en lugar de depender solamente de reconocer una voz. Para esto utiliza información de timing, características de voz, propiedades del canal de audio y, cuando realmente es necesario, una transcripción.
+Memory Leak AI Detector recibe una llamada telefónica grabada y determina si la persona que llama es **humana o una IA**.
 
-En las 71 llamadas de validación disponibles actualmente, el modelo obtuvo **100% de balanced accuracy y 1.000 de AUC**.
+En lugar de intentar identificar únicamente si una voz “suena a IA”, el sistema analiza **cómo se desarrolla la conversación, cómo se comporta la voz y cómo llega el audio por el canal telefónico**. Cuando estas señales no son suficientes, utiliza una tercera opinión mediante Speech-to-Text.
 
-> Este resultado significa 71 de 71 llamadas clasificadas correctamente. No significa que el modelo sea perfecto en cualquier llamada o dataset.
+En las **71 llamadas del conjunto de validación**, el sistema obtuvo:
+
+- **100% Balanced Accuracy**
+- **1.000 ROC-AUC**
+- **0.0092 Brier Score**
+- **71/71 llamadas clasificadas correctamente**
+
+Este resultado corresponde únicamente al conjunto de validación disponible. **No significa que el modelo sea perfecto en cualquier llamada o dataset futuro.**
 
 ---
 
+
+
 ## ¿Cómo funciona?
 
-El audio es estéreo y contiene dos canales:
+El sistema sigue un proceso escalonado:
 
-* **Canal 0:** caller, que es la persona que queremos clasificar.
-* **Canal 1:** agente.
+```mermaid
+flowchart TD
+    WAV["Audio Estéreo WAV"] --> VAD["VAD Adaptativo"]
+    
+    VAD --> Time["Timing & Turn-taking<br/>51 features"]
+    VAD --> Voice["Voz, Acústica & Canal<br/>58 features"]
+    
+    Time --> TimeHead["Timing Head<br/>XGBoost + LogReg"]
+    Voice --> VoiceHead["Voice Head<br/>XGBoost + LogReg"]
+    
+    TimeHead --> Stack["Stacker Logístico"]
+    VoiceHead --> Stack
+    
+    Stack --> Calib["Calibración de Temperatura"]
+    Calib --> Gate{"¿Resultado incierto?"}
+    
+    Gate -- No --> Final["Resultado Final"]
+    Gate -- Sí --> Scribe["ElevenLabs Scribe v2"]
+    
+    Scribe --> Heuristics["Análisis Lingüístico"]
+    Heuristics --> Blend["Fusión ponderada"]
+    Blend --> Final
+```
 
-El sistema primero detecta **cuándo habla cada lado directamente desde el WAV**. Para hacerlo calcula el nivel de ruido de cada canal y detecta como voz las partes que están aproximadamente 12 dB por encima de ese nivel. También une pausas muy pequeñas y elimina fragmentos demasiado cortos. Los archivos de `turns/` solo se usan como referencia para desarrollar y comprobar este VAD; no son necesarios para clasificar llamadas nuevas.
 
-Esto produce los turnos de la conversación, por ejemplo:
+
+La idea principal es utilizar varias señales independientes en lugar de depender de una sola característica.
+
+# 1. El audio y la detección de turnos
+
+Las llamadas son audio estéreo y normalmente contienen dos canales:
+
+```text
+Canal 0 → Caller
+Canal 1 → Agente
+```
+
+Durante el desarrollo utilizamos los archivos de `turns/` como referencia para comprobar que la detección de voz fuera correcta.
+
+En producción, el sistema **no necesita turnos precalculados**. Los obtiene directamente del WAV utilizando un VAD adaptativo.
+
+### VAD adaptativo
+
+Para cada canal:
+
+1. El audio se divide en ventanas de aproximadamente **20 ms**.
+2. Se calcula el nivel RMS.
+3. Se estima el piso de ruido mediante el **percentil 20**.
+4. Se considera voz una señal aproximadamente **12 dB por encima del ruido**.
+5. Se eliminan fragmentos demasiado cortos.
+6. Se extienden los segmentos aproximadamente 100 ms para evitar cortar sonidos suaves.
+7. Se unen pausas pequeñas de menos de aproximadamente 200 ms.
+
+Esto genera los turnos necesarios para analizar la conversación:
 
 ```text
 Caller: 12.4s → 15.1s
@@ -27,31 +85,65 @@ Agent:  15.3s → 18.0s
 Caller: 20.1s → 22.4s
 ```
 
-El audio se procesa una sola vez y de ahí se obtienen todas las características.
+Durante la validación del VAD, se obtuvo aproximadamente:
+
+- **0.95 IoU para caller**
+- **0.97 IoU para agente**
+
+comparando los segmentos detectados con las anotaciones de referencia.
+
+Una vez obtenido el VAD, **el audio se procesa una sola vez** y se reutiliza para extraer todas las características.
 
 ---
 
-## Características del modelo
 
-El modelo utiliza **45 características de timing y 58 características de voz y canal** (103 en total).
 
-### Timing
+# 2. Características del modelo
 
-Estas características describen **cómo ocurre la conversación**:
+El modelo utiliza **109 características en total**:
 
-* Duración y cantidad de turnos.
-* Promedio, mediana y variación de las intervenciones.
-* Tiempo que tarda el caller en responder.
-* Qué tan variable es ese tiempo.
-* Respuestas rápidas y lentas.
-* Tiempo que tarda el agente en responder.
-* Pausas dentro de una intervención.
-* Interrupciones y solapamientos.
-* Porcentaje de la llamada que habla cada lado.
+```text
+51 características de Timing
++
+58 características de Voz y Canal
+=
+109 características
+```
 
-Una de las características más importantes es la **latencia de respuesta**: cuánto tarda el caller en comenzar a hablar después de que termina el agente.
+Estas características se dividen en dos grupos independientes.
 
-En los datos disponibles, las llamadas de IA suelen tardar más porque deben pasar por procesos como:
+---
+
+
+
+## 2.1 Timing e interacción
+
+Las características de timing intentan describir **cómo ocurre la conversación**, no cómo suena una persona.
+
+Entre ellas se encuentran:
+
+- Duración de los turnos.
+- Número de turnos.
+- Promedio, mediana y variación de las intervenciones.
+- Tiempo de respuesta del caller.
+- Variabilidad del tiempo de respuesta.
+- Respuestas extremadamente rápidas o lentas.
+- Tiempo de respuesta del agente.
+- Pausas internas.
+- Interrupciones.
+- Solapamientos.
+- Distribución temporal de la conversación.
+- Porcentaje de tiempo hablado por cada lado.
+
+
+
+### La latencia de respuesta
+
+Una de las señales más importantes es:
+
+> **¿Cuánto tarda el caller en comenzar a responder después de que termina el agente?**
+
+Una IA de voz normalmente necesita pasar por varias etapas:
 
 ```text
 Audio
@@ -65,238 +157,370 @@ Text-to-Speech
 Respuesta
 ```
 
-Esto hace que el comportamiento temporal sea una señal muy útil.
+Cada una puede introducir una pequeña cantidad de latencia.
 
-### Voz y canal
+En los datos disponibles, las llamadas sintéticas presentan patrones temporales diferentes a los humanos.
 
-También se analiza cómo suena la llamada:
+![Latencia de respuesta](assets/01_kde_latencia_respuesta.png)
 
-* Piso de ruido.
-* Nivel de voz.
-* Relación señal/ruido.
-* Silencios.
-* Fugas del audio del agente hacia el caller.
-* Pitch y su variación.
-* Jitter.
-* Shimmer.
-* Variabilidad de volumen.
-* Energía por frecuencia.
-* Centroide y ancho de banda espectral.
-* Rolloff.
-* Planitud espectral.
-* Cruces por cero.
-* Flujo espectral.
-* Variación de MFCC.
-* Ritmo de habla.
-
-Una característica especialmente útil es la distribución de energía en frecuencias altas, incluyendo la zona alrededor de **3.4 kHz**. El modelo no usa esto como una regla única, sino como una de muchas señales.
-
-Los MFCC se utilizan principalmente para medir **cómo cambia el timbre**, en lugar de memorizar el timbre promedio de una persona. Esto ayuda a que el modelo sea más útil cuando aparecen voces que no estaban en el entrenamiento.
+*La distribución muestra cómo los tiempos de respuesta de humanos y sistemas sintéticos presentan comportamientos diferentes. Los humanos tienden a concentrarse en respuestas más rápidas y variables, mientras que las llamadas sintéticas presentan una distribución desplazada.*
 
 ---
 
-## Arquitectura del modelo
+
+
+## 2.2 Voz, acústica y canal
+
+La segunda cabeza analiza **cómo llega y cambia físicamente el audio**.
+
+Se utilizan características relacionadas con:
+
+- Piso de ruido.
+- Energía de la señal.
+- Relación señal/ruido.
+- Silencios.
+- Fugas entre canales.
+- Pitch.
+- Variación del pitch.
+- Jitter.
+- Shimmer.
+- Variación del volumen.
+- Energía por frecuencia.
+- Centroide espectral.
+- Ancho de banda.
+- Rolloff.
+- Planitud espectral.
+- Cruces por cero.
+- Flujo espectral.
+- Variación de MFCC.
+- Ritmo de habla.
+
+
+
+### Características del canal
+
+Una señal interesante es el **cross-talk**.
+
+En una llamada telefónica física, parte de la señal del agente puede filtrarse ligeramente hacia el canal del caller. Cuando una llamada es generada completamente por software, este comportamiento puede ser diferente.
+
+También analizamos los **silencios digitales exactos**, donde existen segmentos con valores numéricos perfectamente iguales a cero.
+
+Estas señales no se utilizan como reglas individuales. Se combinan con el resto de características para que el modelo no dependa de una sola pista.
+
+### Frecuencias altas
+
+También analizamos la energía alrededor de la zona de **3.4 kHz** y otras propiedades espectrales.
+
+La telefonía tradicional limita gran parte de la información de frecuencias altas, mientras que determinados sistemas sintéticos pueden generar patrones distintos en estas regiones.
+
+De nuevo, esto es solamente una característica entre muchas otras.
+
+### MFCC
+
+Los MFCC se utilizan principalmente para analizar **cómo cambia el timbre**, no para memorizar el timbre promedio de un individuo.
+
+En lugar de depender únicamente del valor medio, se analiza su variabilidad. Esto ayuda a reducir la dependencia del modelo respecto a voces específicas del entrenamiento.
+
+![Características acústicas](assets/02_boxplots_caracteristicas_acusticas.png)
+
+*Las distribuciones muestran diferencias entre llamadas humanas y sintéticas en diferentes propiedades acústicas y del canal.*
+
+---
+
+
+
+# 3. Arquitectura de los modelos
 
 El sistema genera dos opiniones independientes:
 
 ```text
-Características de timing
-          ↓
-    Modelo de timing
-
-Características de voz/canal
-          ↓
-     Modelo de voz
-          ↓
-     Combinador
-          ↓
-     Resultado final
+             ┌─────────────────────┐
+             │ Timing features     │
+             └──────────┬──────────┘
+                        ↓
+                 Timing Model
+                        │
+                        │ P_timing
+                        │
+                        ├─────────────┐
+                                      ↓
+                                Stacker
+                                      ↑
+                        ┌─────────────┘
+                        │ P_voice
+                 Voice Model
+                        ↑
+             ┌──────────┴──────────┐
+             │ Voice / Channel     │
+             │ features            │
+             └─────────────────────┘
 ```
 
-Cada modelo principal combina:
+Cada cabeza combina dos modelos complementarios:
 
-* **XGBoost pequeño**, para detectar relaciones y umbrales.
-* **Regresión logística**, para producir una decisión más suave y generalizable.
+### XGBoost
 
-Las clases se balancean durante el entrenamiento porque el conjunto de datos no tiene exactamente la misma cantidad de llamadas humanas y sintéticas.
+Utilizamos un XGBoost pequeño y regularizado para detectar:
 
-Después, un **combinador de regresión logística** junta las dos opiniones. Este combinador se entrena utilizando predicciones *out-of-fold*, para evitar aprender directamente de resultados que los modelos ya memorizaron.
+- Relaciones no lineales.
+- Umbrales.
+- Interacciones entre características.
 
-También se aplica una calibración de confianza que solo puede hacer la probabilidad más conservadora.
+Se mantienen árboles pequeños y regularización para reducir el sobreajuste.
 
----
+### Regresión logística
 
-## Tercera opinión: Speech-to-Text
+La regresión logística proporciona una decisión más suave y estable.
 
-La mayoría de las llamadas se pueden clasificar solamente utilizando el audio.
+Esto es útil para evitar depender completamente de fronteras complejas y para generalizar mejor ante valores que no aparecieron exactamente durante el entrenamiento.
 
-Cuando el resultado está cerca de 50/50, el sistema puede pedir una tercera opinión utilizando **ElevenLabs Scribe v2**.
+### Soft voting
 
-La transcripción busca patrones como:
-
-* Muletillas y dudas.
-* Palabras cortadas.
-* Formas naturales de responder.
-* Repeticiones exactas de información proporcionada por el agente.
-
-Esta información **no reemplaza al modelo acústico**. Solamente modifica su resultado con un peso menor.
-
-Además, la transcripción tiene un tiempo máximo de **12 segundos** para mantener controlado el tiempo total de la petición.
+Las dos predicciones se combinan para producir la probabilidad de cada cabeza.
 
 ---
 
-## ¿Por qué puede funcionar tan bien?
 
-Las llamadas humanas y sintéticas pueden presentar diferencias no solo en la voz, sino también en el **proceso que genera la llamada**.
 
-Una IA que responde por voz normalmente tiene que:
+# 4. El Stacker
+
+Después de obtener las predicciones independientes, un tercer modelo las combina.
+
+El **Stacker Logístico** recibe las probabilidades de:
 
 ```text
-escuchar → transcribir → generar respuesta → sintetizar voz
+Timing Head
+     +
+Voice Head
+     ↓
+Stacker
 ```
 
-Ese proceso puede producir patrones diferentes en:
+Antes de combinarlas se proyectan a espacio logit:
 
-* Tiempo de respuesta.
-* Regularidad de la conversación.
-* Variación del pitch.
-* Variación del volumen.
-* Espectro del audio.
-* Forma en que llega la señal al canal.
+$$
+z = \ln\left(\frac{p}{1-p}\right)
+$$
 
-El modelo combina todas estas pistas en lugar de tomar una decisión basándose en una sola característica.
+El stacker se entrena utilizando **predicciones Out-of-Fold de 5 folds**.
 
-En pruebas internas, incluso eliminando las dos pistas más fuertes —latencia de respuesta y bandas espectrales— el modelo mantiene aproximadamente **97% de rendimiento en validación cruzada sobre `train`**. Esto indica que existen varias señales útiles y no una sola regla determinante.
+Esto es importante porque evita entrenar el combinador utilizando predicciones que fueron producidas sobre los mismos ejemplos que los modelos utilizaron para aprender.
+
+En otras palabras, el sistema intenta evitar que el stacker aprenda una confianza artificialmente optimista.
+
+![Stacker](assets/03_logits_stacker.png)
+
+*Visualización de las predicciones en espacio logit y cómo las diferentes cabezas contribuyen a la decisión final.*
 
 ---
 
-## Datos y validación
 
-El entrenamiento utiliza únicamente las llamadas marcadas como `train`.
 
-Actualmente hay aproximadamente:
+# 5. Calibración de confianza
+
+Después del stacker se aplica una calibración de temperatura.
+
+La calibración permite que una predicción como:
 
 ```text
-282 llamadas de entrenamiento
-169 IA
-113 humanas
+0.99
 ```
 
-Las llamadas de `val` se utilizan para medir el rendimiento del modelo.
+no sea interpretada automáticamente como una certeza absoluta.
 
-Los speakers de `train` y `val` no son los mismos, por lo que el modelo no depende únicamente de memorizar voces.
+La temperatura únicamente puede hacer la confianza **más conservadora**:
 
-Los archivos de `turns/` sirven como referencia para desarrollar y comprobar el detector de voz, pero **no se utilizan para clasificar directamente una llamada nueva**.
+$$
+T \geq 1
+$$
 
-El resultado actual en `val` es:
+Esto evita que el sistema incremente artificialmente probabilidades extremas.
 
-| Modelo    | Balanced Accuracy |       AUC |
-| --------- | ----------------: | --------: |
-| Timing    |             94.5% |     0.990 |
-| Voz       |              100% |     1.000 |
-| Combinado |          **100%** | **1.000** |
-
-El resultado de 100% debe interpretarse como **71 de 71 llamadas correctamente clasificadas**, no como una garantía de 100% para cualquier conjunto futuro.
+Además de mejorar la interpretación de la confianza, esta etapa ayuda a obtener un mejor **Brier Score**.
 
 ---
 
-## API
 
-La API expone dos endpoints:
+
+# 6. Tercera opinión: Speech-to-Text
+
+La mayoría de las llamadas pueden clasificarse solamente con las señales acústicas.
+
+Por eso, la transcripción **no se utiliza para todas las llamadas**.
+
+Primero se obtiene una decisión acústica.
+
+Si el resultado cae dentro de una zona de incertidumbre:
+
+$$
+|p-0.5| \leq 0.12
+$$
+
+y todavía existe suficiente tiempo disponible, el sistema puede pedir una tercera opinión.
 
 ```text
-POST /detect
-GET  /health
+Audio
+ ↓
+Timing + Voice
+ ↓
+Resultado
+ ↓
+¿Incierto?
+ ├── No → Final
+ └── Sí
+       ↓
+ ElevenLabs Scribe v2
+       ↓
+ Análisis lingüístico
+       ↓
+ Ajuste de probabilidad
+       ↓
+ Final
 ```
 
-`POST /detect` recibe el contrato oficial del juez:
+La transcripción se realiza utilizando **ElevenLabs Scribe v2**.
 
-```json
-{
-  "call_id": "call_0181ce113ebe",
-  "audio_base64": "<WAV completo codificado en Base64>",
-  "sample_rate": 8000,
-  "channels": 2
-}
+El sistema busca señales como:
+
+### Patrones humanos
+
+Ejemplos:
+
+```text
+"mande"
+"cómo?"
+"perdón"
+"a ver"
+"este..."
 ```
 
-El endpoint responde con HTTP 200 y:
+También se consideran palabras cortadas, dudas y otras formas de respuesta espontánea.
 
-```json
-{
-  "is_synthetic": true,
-  "confidence": 0.87
-}
-```
+### Patrones sintéticos
 
-`is_synthetic` indica si el modelo considera que el caller es una IA.
+Se presta atención, entre otras cosas, a repeticiones demasiado exactas o inmediatas de información proporcionada por el agente.
 
-`confidence` representa la confianza de la decisión.
+### Peso limitado
 
-El juez permite un máximo de 30 segundos por llamada y aplica ese límite. Si el
-JSON es inválido o ocurre un error, `/detect` responde HTTP 200 con un
-booleano `is_synthetic` para no fallar por protocolo.
+La información lingüística **no reemplaza la predicción acústica**.
 
-La API también:
+Su contribución tiene un peso menor:
 
-* Acepta diferentes formatos de canal y frecuencia.
-* Normaliza el audio antes de analizarlo.
-* Carga los modelos al iniciar el servidor.
-* Hace una inferencia de calentamiento para reducir la latencia inicial.
-* Procesa el audio directamente en memoria.
-* Mantiene un presupuesto de tiempo para cada petición.
-* Devuelve una respuesta válida incluso cuando ocurre un error de procesamiento.
+# $$
+\text{logit final}
+
+\text{logit acústico}
++
+0.5 \times \text{logit STT}
+$$
+
+Además, la transcripción tiene un presupuesto máximo de aproximadamente **12 segundos** para mantener controlada la latencia total.
 
 ---
 
-## Cómo ejecutar
 
-```bash
-python -m pip install -r requirements.txt
 
-python -m src.train
+# 7. ¿Por qué funciona?
 
-python -m src.evaluate
+La idea principal del proyecto es que una llamada sintética puede diferenciarse de una humana en más de una dimensión.
 
-uvicorn api.app:app --host 0.0.0.0 --port 8000
+Una IA de voz normalmente tiene que:
+
+```text
+Escuchar
+   ↓
+Transcribir
+   ↓
+Generar respuesta
+   ↓
+Sintetizar voz
+   ↓
+Hablar
 ```
 
-`train` entrena los modelos utilizando `train`.
+Ese proceso puede producir diferencias en:
 
-`evaluate` mide el rendimiento utilizando `val`.
+- Tiempo de respuesta.
+- Regularidad de los turnos.
+- Variación del pitch.
+- Variación del volumen.
+- Espectro.
+- Ruido.
+- Propiedades del canal.
+- Forma de las pausas.
+- Forma en que responde a información del agente.
 
-Para probar el mismo contrato que utiliza el juez:
+El modelo intenta combinar todas estas señales.
 
-```bash
-python scripts/check_endpoint.py --url http://localhost:8000/detect --split val --n 20
-```
+En pruebas internas, incluso eliminando dos de las señales más fuertes —**latencia de respuesta y bandas espectrales**— el modelo mantiene aproximadamente **97% de rendimiento en validación cruzada sobre** `train`.
 
-Este cliente valida el código HTTP y la forma de la respuesta, y reporta
-balanced accuracy y latencia. Solo utiliza la biblioteca estándar de Python.
+Esto sugiere que el modelo no depende completamente de una sola regla.
 
 ---
 
-## Estructura principal
 
-| Archivo           | Función                                        |
-| ----------------- | ---------------------------------------------- |
-| `src/features.py` | Procesamiento del audio, VAD y características |
-| `src/timing.py`   | Modelo de timing                               |
-| `src/voice.py`    | Modelo de voz y canal                          |
-| `src/stt.py`      | Speech-to-Text                                 |
-| `src/detect.py`   | Flujo completo de detección                    |
-| `src/models.py`   | Carga, combinación y calibración de modelos    |
-| `src/train.py`    | Entrenamiento                                  |
-| `src/evaluate.py` | Evaluación                                     |
-| `api/app.py`      | API                                            |
-| `scripts/check_endpoint.py` | Cliente de prueba del contrato del juez |
-| `models/`         | Modelos entrenados                             |
-| `audio/`          | Llamadas grabadas                              |
-| `turns/`          | Turnos de referencia                           |
-| `manifest.csv`    | Información y división de las llamadas         |
 
-## Resumen
+# 8. Datos y validación
 
-El detector no intenta simplemente reconocer una “voz de IA”. Analiza **el comportamiento de la conversación, las características de la voz y la forma en que llega el audio**.
+El entrenamiento utiliza únicamente las llamadas del split `train`.
 
-La combinación de estas señales permite distinguir entre llamadas humanas y sintéticas con un rendimiento muy alto en el conjunto de datos disponible.
+Actualmente el conjunto de entrenamiento contiene aproximadamente:
+
+```text
+282 llamadas
+├── 169 sintéticas
+└── 113 humanas
+```
+
+El conjunto `val` se mantiene separado para evaluar el sistema.
+
+Además, los speakers de `train` y `val` son diferentes:
+
+```text
+TRAIN
+  ↓
+Aprendizaje
+
+VAL
+  ↓
+Evaluación
+```
+
+Esto reduce el riesgo de que el modelo simplemente memorice determinadas voces.
+
+Los archivos dentro de `turns/` se utilizan como referencia para desarrollar y comprobar el detector de voz, pero **no son necesarios para clasificar una llamada nueva en producción**.
+
+---
+
+
+
+# 9. Resultados
+
+En las **71 llamadas de validación** disponibles:
+
+
+| Modelo            | Balanced Accuracy | ROC-AUC    | Brier Score |
+| ----------------- | ----------------- | ---------- | ----------- |
+| Timing Head       | 94.5%             | 0.9902     | 0.0541      |
+| Voice Head        | 100.0%            | 1.0000     | 0.0094      |
+| Fused Model       | **100.0%**        | **1.0000** | **0.0092**  |
+| Pipeline completo | **100.0%**        | **1.0000** | **0.0092**  |
+
+
+Esto representa:
+
+```text
+71 llamadas
+71 correctas
+0 incorrectas
+```
+
+El stacker tuvo que resolver discrepancias entre las dos cabezas en aproximadamente **2.8% de las llamadas**, equivalentes a 2 de 71.
+
+En este conjunto de validación, ninguna llamada terminó necesitando el desempate lingüístico porque las señales acústicas fueron suficientemente claras.
+
+**Importante:** 100% en estas 71 llamadas no significa 100% de precisión garantizada para llamadas nuevas.
+
+![Matriz de confusión y ROC](assets/04_matriz_confusion_y_roc.png)
+
+*Resultados del modelo sobre el conjunt*
