@@ -5,7 +5,7 @@
 
 El sistema determina si quien llama a un centro de atención bancario es una **persona real** o un **asistente autónomo de Inteligencia Artificial** (pipeline de ASR + LLM + TTS).
 
-En las 71 llamadas del split de validación (*speaker-disjoint*), el modelo obtiene **100% de Balanced Accuracy**, **1.000 de AUC** y **0.009 de Brier Score** con una latencia media de **~250 ms**.
+En las 71 llamadas del split de validación (*speaker-disjoint*), el modelo obtiene **100% de Balanced Accuracy**, **1.000 de AUC** y **0.009 de Brier Score** con una latencia media de **~240 ms**.
 
 ---
 
@@ -127,7 +127,7 @@ El conjunto de validación (`val`) es **estrictamente disjunto por locutor** (*s
 
 ---
 
-## 7. API de Producción (`POST /detect`)
+## 7. API de Producción
 
 Servidor de inferencia construido sobre FastAPI + Uvicorn:
 
