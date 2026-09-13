@@ -12,6 +12,8 @@ En un centro de llamadas bancarias, los atacantes o usuarios pueden utilizar **a
 
 ### Nuestra solución: El Enfoque en Tres Capas
 En lugar de buscar una sola "pista mágica", nuestro sistema analiza la llamada desde tres ángulos complementarios e independientes:
+<img width="2080" height="868" alt="image" src="https://github.com/user-attachments/assets/16e9c014-58f2-4b04-bac2-fee21f0c9cc2" />
+
 
 ```
                       Audio Estéreo (Caller vs. Agente)
