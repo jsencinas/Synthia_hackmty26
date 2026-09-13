@@ -1,9 +1,5 @@
 # Reporte Técnico: Arquitectura y Funcionamiento del Detector de IA
 
-> **Documento de Arquitectura e Ingeniería del Sistema**  
-> **Proyecto:** Memory Leak AI Detector — Human vs. Synthetic Voice Detection (HackMTY 2026 / Reto Altur)  
-> **Archivo:** `README_REPORTE_TECNICO.md`
-
 ---
 
 ## 1. El Problema y la Estrategia
