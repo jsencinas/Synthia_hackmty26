@@ -1,4 +1,4 @@
-# Memory Leak AI Detector
+# Memory Leak AI Detector SYNTHIA
 
 > **Detección de Llamadas Humanas vs. Sintéticas en Telefonía Bancaria**  
 > Proyecto desarrollado para el **HackMTY 2026 — Reto Altur**.
